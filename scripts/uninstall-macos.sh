@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE="$HOME/Library/Application Support/ClaudeWindowStarter"
-AGENT="$HOME/Library/LaunchAgents/com.openai.claude-window-starter.plist"
+AGENT_DIR="$HOME/Library/LaunchAgents"
 APP="${CLAUDE_STARTER_APP_PATH:-/Applications/Claude Window Starter.app}"
 DOMAIN="gui/$(id -u)"
 PURGE=false
@@ -14,15 +14,18 @@ elif [[ -n "${1:-}" ]]; then
   exit 2
 fi
 
-launchctl bootout "$DOMAIN/com.openai.claude-window-starter" >/dev/null 2>&1 || true
-rm -f "$AGENT"
+for plist in "$AGENT_DIR"/com.openai.claude-window-starter.*.plist; do
+  [[ -e "$plist" ]] || continue
+  label="$(basename "$plist" .plist)"
+  launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
+  rm -f "$plist"
+done
 rm -rf "$APP"
 
 if [[ "$PURGE" == true ]]; then
   rm -rf "$BASE"
   defaults delete com.openai.claude-window-starter >/dev/null 2>&1 || true
-  security delete-generic-password -s com.openai.claude-window-starter >/dev/null 2>&1 || true
-  echo "Application, backend, settings, and local credentials removed."
+  echo "Application, backend, settings, and local files removed. Keychain entries remain per account."
 else
-  echo "Application and LaunchAgent removed. Shared config/state remain at: $BASE"
+  echo "Application and launch agents removed. Shared config/state remain at: $BASE"
 fi

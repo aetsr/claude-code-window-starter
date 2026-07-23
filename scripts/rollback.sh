@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-BASE="${CLAUDE_STARTER_HOME:-$HOME/.local/share/claude-window-starter}"
+BASE="${CLAUDE_STARTER_HOME:-$HOME/Library/Application Support/ClaudeWindowStarter}"
 if [ "${1:-}" != "--yes" ]; then
   echo "Rollback requires --yes after reviewing list-releases.sh." >&2
   exit 2

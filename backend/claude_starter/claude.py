@@ -134,21 +134,6 @@ def discover_claude() -> ClaudeCapabilities:
     )
 
 
-def _credential_path(paths: AppPaths, name: str) -> Path | None:
-    credential_directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    candidates = []
-    if credential_directory:
-        candidates.append(Path(credential_directory) / name)
-    candidates.append(paths.secrets_dir / name)
-    for candidate in candidates:
-        try:
-            if candidate.is_file() and candidate.stat().st_mode & 0o077 == 0:
-                return candidate
-        except OSError:
-            continue
-    return None
-
-
 def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str]:
     allowed = {
         "HOME",
@@ -164,16 +149,6 @@ def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str
     }
     environment = {key: value for key, value in os.environ.items() if key in allowed}
     environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1"
-    if config.get("execution_mode") == "oracle":
-        token_path = _credential_path(paths, "claude_oauth_token")
-        if token_path is None:
-            raise AppError(
-                ErrorCode.CLAUDE_NOT_AUTHENTICATED, "OAuth systemd credential is missing"
-            )
-        token = token_path.read_text(encoding="utf-8").strip()
-        if not token:
-            raise AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED, "OAuth systemd credential is empty")
-        environment["CLAUDE_CODE_OAUTH_TOKEN"] = token
     return environment
 
 
@@ -187,6 +162,18 @@ def _classify_failure(stderr: str, stdout: str, returncode: int) -> AppError:
         return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
     if any(word in text for word in ("not logged in", "authentication", "unauthorized", "oauth")):
         return AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED)
+    if any(
+        word in text
+        for word in (
+            "network",
+            "connection",
+            "timed out",
+            "temporary failure",
+            "could not resolve",
+            "dns",
+        )
+    ):
+        return AppError(ErrorCode.NETWORK_UNAVAILABLE)
     return AppError(
         ErrorCode.NONZERO_EXIT,
         f"Claude exited with code {returncode}: {sanitize_text(stderr or stdout, 300)}",
@@ -282,7 +269,7 @@ def run_claude(
             {"sources": capabilities.prohibited_credentials},
         )
     now = local_now(config)
-    is_automatic = trigger in {"automatic", "catch_up"}
+    is_automatic = trigger in {"automatic", "catch_up", "background"}
     if is_automatic and not config["enabled"]:
         raise AppError(ErrorCode.CONFIG_INVALID, "Automatic execution is disabled")
     state = load_state(paths)

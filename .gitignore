@@ -24,6 +24,7 @@ htmlcov/
 build/
 dist/
 artifacts/
+tmp/
 *.egg-info/
 .python-version
 .env

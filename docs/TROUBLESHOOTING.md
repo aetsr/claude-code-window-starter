@@ -1,14 +1,12 @@
-# Troubleshooting
+# Sorun giderme
 
-- `API_KEY_DETECTED`: remove prohibited API/provider variables and `apiKeyHelper`; do not substitute another paid provider.
-- `CLAUDE_NOT_AUTHENTICATED`: renew `claude setup-token`, store it securely, and repeat dry-run before a real request.
-- `SSH_HOST_KEY_CHANGED` / `GIT_HOST_KEY_CHANGED`: stop. Verify the new key through an independent trusted channel before replacing known_hosts.
-- `ALREADY_RAN_TODAY`: automatic duplicate protection worked; manual execution remains available.
-- `MODEL_UNAVAILABLE`: `auto` retries the account default only when the Haiku probe failed before a successful response.
-- `HEALTH_CHECK_FAILED`: the staged release is not activated, or post-switch rollback is attempted automatically.
-- `NO_HEALTHY_PREVIOUS_RELEASE`: no locally installed healthy fallback exists; do not supply an arbitrary Telegram commit.
-- Wheel build reports `bdist_wheel` missing: install the exact tools from `requirements-dev.lock`; Oracle runtime installation does not require them.
-- Swift reports an old module-cache path after moving the repository: run `swift package --package-path macos-app clean`.
-- Empty `claude auth status`: status is `unknown`, not authenticated. A controlled real smoke test is the final authentication proof.
+- API_KEY_DETECTED: yasaklı API/provider değişkenlerini kaldırın; abonelik oturumu dışında bir credential eklemeyin.
+- CLAUDE_NOT_AUTHENTICATED: Mac’te Claude Code oturumunu yenileyin, önce dry-run sonra gerçek smoke çağrısı yapın.
+- NETWORK_UNAVAILABLE veya pending_connectivity: bağlantı geri geldiğinde helper otomatik olarak tek deneme yapar.
+- ALREADY_RAN_TODAY: günlük duplicate koruması çalıştı; manuel çalışma yine yapılabilir.
+- MODEL_UNAVAILABLE: auto, başarılı çağrıdan önce Haiku alias’ını sınar ve gerektiğinde hesap varsayılanına döner.
+- LAUNCHD_FAILED: uygulamayı yeniden kurun; plist dosyalarının plutil -lint sonucunu kontrol edin.
+- NO_HEALTHY_PREVIOUS_RELEASE: geri dönülecek sağlıklı yerel release yoktur.
+- Kapak kapatılınca işlem durmuşsa bu macOS zorunlu uyku davranışıdır; cihaz uyandığında bekleyen iş yeniden değerlendirilir.
 
-Inspect `status --json`, `diagnose --server --json`, user service status, and sanitized JSONL logs. Do not paste credentials, raw environment dumps, complete stderr, Claude auth files, or Telegram update payloads into an issue.
+Tanı için uygulamadaki Durum, Teşhis, Sağlık kontrolü ve Kayıtlar düğmelerini kullanın. Sır, tam stderr, ham environment veya Telegram update payload’ı paylaşmayın.

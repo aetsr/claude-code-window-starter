@@ -1,32 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 from .errors import AppError, ErrorCode
-from .paths import AppPaths
-
-
-def telegram_token(paths: AppPaths) -> str:
-    directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    candidates = []
-    if directory:
-        candidates.append(Path(directory) / "telegram_token")
-    candidates.append(paths.secrets_dir / "telegram_token")
-    for path in candidates:
-        try:
-            if path.is_file() and path.stat().st_mode & 0o077 == 0:
-                token = path.read_text(encoding="utf-8").strip()
-                if token:
-                    return token
-        except OSError:
-            continue
-    raise AppError(ErrorCode.TELEGRAM_TOKEN_MISSING)
 
 
 class TelegramAPI:

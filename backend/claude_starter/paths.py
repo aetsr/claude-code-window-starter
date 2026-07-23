@@ -12,11 +12,7 @@ class AppPaths:
     @classmethod
     def discover(cls, override: str | None = None) -> AppPaths:
         value = override or os.environ.get("CLAUDE_STARTER_HOME")
-        base = (
-            Path(value).expanduser()
-            if value
-            else Path.home() / ".local/share/claude-window-starter"
-        )
+        base = Path(value).expanduser() if value else Path.home() / "Library/Application Support/ClaudeWindowStarter"
         return cls(base.resolve())
 
     @property
@@ -52,16 +48,8 @@ class AppPaths:
         return self.shared / "runtime"
 
     @property
-    def secrets_dir(self) -> Path:
-        return self.shared / "secrets"
-
-    @property
     def run_lock(self) -> Path:
         return self.runtime_dir / "claude.lock"
-
-    @property
-    def update_lock(self) -> Path:
-        return self.runtime_dir / "update.lock"
 
     @property
     def bot_lock(self) -> Path:
@@ -70,10 +58,6 @@ class AppPaths:
     @property
     def releases(self) -> Path:
         return self.base / "releases"
-
-    @property
-    def repo(self) -> Path:
-        return self.base / "repo.git"
 
     @property
     def current(self) -> Path:
@@ -89,7 +73,6 @@ class AppPaths:
             self.state_dir,
             self.log_dir,
             self.runtime_dir,
-            self.secrets_dir,
             self.releases,
         ):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -5,136 +5,188 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            HStack {
-                Picker("Mode", selection: $model.settings.target) {
-                    ForEach(ExecutionTarget.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                if model.busy { ProgressView().controlSize(.small) }
-            }
-
+            header
             TabView {
-                automation.tabItem { Label("Claude", systemImage: "sparkles") }
-                oracle.tabItem { Label("Oracle", systemImage: "server.rack") }
+                claude.tabItem { Label("Claude", systemImage: "sparkles") }
                 telegram.tabItem { Label("Telegram", systemImage: "paperplane") }
-                deployment.tabItem { Label("Git", systemImage: "arrow.triangle.branch") }
+                maintenance.tabItem { Label("Bakım", systemImage: "wrench.and.screwdriver") }
+                logs.tabItem { Label("Kayıtlar", systemImage: "doc.text") }
             }
-
-            GroupBox("Result") {
-                ScrollView {
-                    Text(model.statusText)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(height: 130)
-            }
-            if let error = model.lastError {
-                Text(error).foregroundStyle(.red).font(.caption)
-            }
-            HStack {
-                Button("Status") { model.perform(["status"]) }
-                Button("Dry-run") { model.perform(["run", "--dry-run", "--trigger", "macos_ui"]) }
-                Button("Diagnose") { model.perform(["diagnose"]) }
-                Spacer()
-                Button("Save") { model.saveConfiguration() }.buttonStyle(.borderedProminent)
-            }
+            result
+            controls
         }
         .padding()
+        .frame(minWidth: 560, minHeight: 680)
         .disabled(model.busy)
+        .onAppear { model.perform(["status"]) }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                if !Task.isCancelled { model.perform(["status"]) }
+            }
+        }
+        .onChange(of: model.settings.backgroundEnabled) { _ in
+            guard !model.busy else { return }
+            model.saveBackgroundImmediately()
+        }
     }
 
-    private var automation: some View {
+    @ViewBuilder private var header: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+            LogoMark(size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Claude Window Starter").font(.headline)
+                Text("Mac üzerinde güvenli otomasyon").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Picker("Arka Planda Çalışma", selection: $model.settings.backgroundEnabled) {
+                Text("Kapalı").tag(false)
+                Text("Açık").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 150)
+        }
+            if model.settings.backgroundEnabled {
+            Text("Ekran kararabilir; boşta uyku önlenir. Pil tüketimi artabilir. Kapak zorunlu uykuya geçirirse iş uyanınca devam eder.")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        HStack(spacing: 8) {
+            StatusPill(title: "İnternet", value: model.networkOnline ? "Bağlı" : "Bekliyor", color: model.networkOnline ? .green : .orange)
+            StatusPill(title: "Uyku", value: model.powerAssertion ? "Açık" : "Kapalı", color: model.powerAssertion ? .blue : .secondary)
+            StatusPill(title: "Otomasyon", value: model.settings.enabled ? "Açık" : "Kapalı", color: model.settings.enabled ? .green : .secondary)
+            StatusPill(title: "Telegram", value: model.settings.telegramEnabled ? "Açık" : "Kapalı", color: model.settings.telegramEnabled ? .green : .secondary)
+            if model.pendingAutomatic { StatusPill(title: "Çalışma", value: "Bekliyor", color: .orange) }
+        }
+    }
+
+    private var claude: some View {
         Form {
-            Toggle("Automation enabled", isOn: $model.settings.enabled)
-            TextField("Daily time (HH:MM)", text: $model.settings.scheduleTime)
-            TextField("IANA timezone", text: $model.settings.timezone)
+            Toggle("Günlük otomasyonu etkinleştir", isOn: $model.settings.enabled)
+            TextField("Günlük saat (HH:MM)", text: $model.settings.scheduleTime)
+            TextField("IANA zaman dilimi", text: $model.settings.timezone)
             Picker("Model", selection: $model.settings.model) {
                 ForEach(["auto", "haiku", "sonnet", "opus"], id: \.self, content: Text.init)
             }
             TextField("Prompt", text: $model.settings.prompt, axis: .vertical)
-            Stepper("Timeout: \(model.settings.timeout)s", value: $model.settings.timeout, in: 10...1800)
-            Toggle("Same-day catch-up", isOn: $model.settings.catchUp)
+            Stepper("Timeout: \(model.settings.timeout) saniye", value: $model.settings.timeout, in: 10...1800)
+            Toggle("İnternet geri geldiğinde bekleyen çalışmayı dene", isOn: $model.settings.catchUp)
             HStack {
-                Button("Run now") { model.perform(["run", "--manual", "--trigger", "macos_ui"]) }
-                Button("Health") { model.perform(["health"]) }
-                Button("Version") { model.perform(["version"]) }
+                Button("Şimdi çalıştır") { model.perform(["run", "--manual", "--trigger", "macos_ui"]) }
+                Button("Dry-run") { model.perform(["run", "--dry-run", "--trigger", "macos_ui"]) }
             }
-            Text("A successful request does not prove that the five-hour usage window started.")
+            Text("Başarılı istek, Claude’un beş saatlik kullanım penceresinin başladığını tek başına kanıtlamaz.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.padding()
-    }
-
-    private var oracle: some View {
-        Form {
-            TextField("Host or IP", text: $model.settings.host)
-            TextField("SSH user", text: $model.settings.user)
-            TextField("SSH key path", text: $model.settings.keyPath)
-            Stepper("SSH port: \(model.settings.port)", value: $model.settings.port, in: 1...65535)
-            TextField("Pinned known_hosts file", text: $model.settings.knownHostsPath)
-            Text("Observed fingerprint: \(model.observedFingerprint)")
-                .font(.caption).textSelection(.enabled)
-            HStack {
-                Button("Scan host key") { model.scanHostKey() }
-                Button("Trust verified key") { model.trustScannedHostKey() }
-            }
-            Button("Test strict SSH connection") { model.testSSH() }
-            SecureField("Claude setup-token", text: $model.oauthToken)
-            Button("Transfer OAuth credential") {
-                model.transferCredential(name: "claude_oauth_token", value: model.oauthToken)
-            }
-            Text("The app never uses StrictHostKeyChecking=no and stops if the host key changes.")
-                .font(.caption).foregroundStyle(.secondary)
-        }.padding()
+        }
+        .padding()
     }
 
     private var telegram: some View {
         Form {
-            Toggle("Telegram enabled", isOn: $model.settings.telegramEnabled)
-            SecureField("BotFather token", text: $model.telegramToken)
-            TextField("Allowed user ID", text: $model.settings.telegramUserID)
-            TextField("Allowed chat ID", text: $model.settings.telegramChatID)
-            TextField("Notification chat/channel ID", text: $model.settings.notificationID)
-            Toggle("Notification target is a channel", isOn: $model.settings.notificationIsChannel)
-            Button("Transfer Telegram credential") {
-                model.transferCredential(name: "telegram_token", value: model.telegramToken)
-            }
-            Button("Send test message") { model.perform(["telegram-test"]) }
+            Toggle("Telegram botunu etkinleştir", isOn: $model.settings.telegramEnabled)
+            SecureField("BotFather tokenı", text: $model.telegramToken)
+            Button("Tokenı Keychain’e kaydet") { model.transferTelegramCredential() }
+            TextField("İzinli kullanıcı ID", text: $model.settings.telegramUserID)
+            TextField("İzinli özel sohbet ID", text: $model.settings.telegramChatID)
+            TextField("Bildirim sohbet/kanal ID", text: $model.settings.notificationID)
+            Toggle("Bildirim hedefi kanal", isOn: $model.settings.notificationIsChannel)
+            Button("Telegram bağlantısını test et") { model.telegramTest() }
             HStack {
-                Button("Start bot") { model.perform(["service", "telegram", "start"]) }
-                Button("Stop bot") { model.perform(["service", "telegram", "stop"]) }
-                Button("Restart bot") { model.perform(["service", "telegram", "restart"]) }
+                Button("Botu başlat") { model.perform(["service", "telegram", "start"]) }
+                Button("Botu durdur") { model.perform(["service", "telegram", "stop"]) }
+                Button("Yeniden başlat") { model.perform(["service", "telegram", "restart"]) }
             }
-            Text("Commands are private-chat-only by default; channels receive notifications only.")
+            Text("Komutlar varsayılan olarak yalnızca allowlist içindeki özel sohbetlerde kabul edilir; kanal yalnız bildirim alır.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.padding()
+        }
+        .padding()
     }
 
-    private var deployment: some View {
+    private var maintenance: some View {
         Form {
-            TextField("Private GitHub SSH URL", text: $model.settings.repositoryURL)
-            TextField("Protected branch", text: $model.settings.branch)
-            Toggle("Protected branch and required checks confirmed", isOn: $model.settings.protectedBranchConfirmed)
-            TextField("Verified GitHub ED25519 fingerprint", text: $model.githubFingerprint)
-            Button("Generate/configure read-only deploy key") { model.configureGitDeployKey() }
-            Stepper("Retain releases: \(model.settings.retainReleases)", value: $model.settings.retainReleases, in: 2...20)
-            Toggle("Automatic update checks", isOn: $model.settings.autoUpdate)
-            Toggle("Automatically apply updates", isOn: $model.settings.autoApplyUpdates)
-                .disabled(!model.settings.autoUpdate)
-            HStack {
-                Button("Check updates") { model.perform(["update", "--check"]) }
-                Button("Apply update") { model.perform(["update", "--apply"]) }
-            }
-            HStack {
-                Button("List releases") { model.perform(["releases"]) }
-                Button("Rollback") { model.perform(["rollback", "--yes"]) }
-            }
-            HStack {
-                Button("Fetch logs") { model.perform(["logs", "--lines", "50"]) }
-                Button("Restart timer") { model.perform(["service", "timer", "restart"]) }
-            }
-            Text("The server accepts only the configured origin branch head. CI status relies on protected-main required checks and is not claimed as machine-verified.")
+            Button("Durumu yenile") { model.perform(["status"]) }
+            Button("Teşhis") { model.perform(["diagnose"]) }
+            Button("Sağlık kontrolü") { model.perform(["health"]) }
+            Button("Sürümler") { model.perform(["releases"]) }
+            Button("Önceki sağlıklı sürüme dön") { model.perform(["rollback", "--yes"]) }
+            Text("Bu sürüm yerel release sağlık kontrolü ve rollback akışını kullanır.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.padding()
+        }
+        .padding()
+    }
+
+    private var logs: some View {
+        VStack(alignment: .leading) {
+            Button("Kayıtları getir") { model.perform(["logs", "--lines", "80"]) }
+            ScrollView {
+                Text(model.statusText)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding()
+    }
+
+    @ViewBuilder private var result: some View {
+        GroupBox("Sonuç") {
+            ScrollView {
+                Text(model.statusText)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 110)
+        }
+        if let error = model.lastError {
+            Text(error).foregroundStyle(.red).font(.caption)
+        }
+    }
+
+    private var controls: some View {
+        HStack {
+            Button("Durum") { model.perform(["status"]) }
+            Spacer()
+            Button("Ayarları kaydet") { model.saveConfiguration() }.buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+struct StatusPill: View {
+    let title: String
+    let value: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text("\(title): \(value)").font(.caption2)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
+    }
+}
+
+struct LogoMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: size * 0.22)
+                .fill(LinearGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.28), Color(red: 0.18, green: 0.10, blue: 0.34)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            RoundedRectangle(cornerRadius: size * 0.12)
+                .stroke(Color.cyan.opacity(0.9), lineWidth: size * 0.06)
+                .padding(size * 0.18)
+            Image(systemName: "sparkle")
+                .font(.system(size: size * 0.34, weight: .bold))
+                .foregroundStyle(Color.orange)
+                .offset(x: size * 0.08, y: -size * 0.05)
+        }
+        .frame(width: size, height: size)
+        .accessibilityLabel("Claude Window Starter logosu")
     }
 }

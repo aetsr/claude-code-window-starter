@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.openai.claude-window-starter.run-dry</string>
+  <key>ProgramArguments</key>
+  <array><string>@@AGENT@@</string><string>run</string><string>-m</string><string>claude_starter</string><string>--home</string><string>@@HOME@@</string><string>--json</string><string>run</string><string>--dry-run</string><string>--trigger</string><string>macos_ui</string></array>
+  <key>RunAtLoad</key><false/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>@@HOME@@/shared/logs/run-dry.stdout.log</string>
+  <key>StandardErrorPath</key><string>@@HOME@@/shared/logs/run-dry.stderr.log</string>
+</dict>
+</plist>

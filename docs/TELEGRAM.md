@@ -1,9 +1,12 @@
-# Telegram setup and commands
+# Telegram kurulumu
 
-Create the bot with BotFather and a private notification channel yourself. Add the bot as channel administrator only if it must post there. Channel commands remain disabled; use a private bot chat for control. Numeric user/chat IDs—not usernames—form the allowlist.
+1. BotFather ile bot oluşturun.
+2. Tokenı uygulamadaki SecureField’e yapıştırın ve Tokenı Keychain’e kaydet düğmesine basın.
+3. Sayısal Telegram kullanıcı ID’nizi ve private chat ID’nizi allowlist alanlarına girin.
+4. Gerekirse bildirim chat/kanal ID’sini ekleyin.
+5. Telegram’ı etkinleştirip ayarları kaydedin.
+6. Telegram bağlantısını test et düğmesine basın.
 
-Run `install-telegram.sh ALLOWED_USER_ID [ALLOWED_CHAT_ID]` as the `claude-starter` service user, paste the token through hidden stdin, and optionally configure `notification_channel_id`. The token is stored as an encrypted systemd credential when supported, otherwise as a 0600 file. It is never displayed again and must not be pasted into chat or committed.
+Bot long polling kullanır ve inbound port açmaz. Kanal yalnızca bildirim hedefidir; komutlar allowlist içindeki private chat’lerden kabul edilir.
 
-Commands include status, run/dry-run/diagnose, schedule/timezone, enable/disable, last/next/logs, model/prompt, timer, version/health, update status/check/apply, release list, and rollback. Run, prompt replacement, update, and rollback use owner-bound expiring confirmations. Unauthorized requests receive only `Unauthorized`; complete Telegram payloads are not logged.
-
-The bot uses `getUpdates` long polling and opens no inbound port. The polling offset is atomically persisted. A bot lock prevents two long-running instances; per-user cooldown limits command bursts.
+Çalıştırma ve prompt değiştirme confirmation nonce ister. Token hiçbir zaman geri gösterilmez veya loglanmaz.

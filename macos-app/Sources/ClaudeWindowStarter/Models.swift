@@ -58,38 +58,59 @@ enum JSONValue: Codable, Sendable, CustomStringConvertible {
     }
 }
 
-enum ExecutionTarget: String, CaseIterable, Identifiable, Codable {
-    case oracle = "Oracle Server"
-    case thisMac = "This Mac"
-    var id: String { rawValue }
-}
-
 struct ClientSettings: Codable, Equatable {
-    var target: ExecutionTarget = .oracle
-    var host = ""
-    var port = 22
-    var user = "ubuntu"
-    var keyPath = ""
-    var knownHostsPath: String = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: "ClaudeWindowStarter/known_hosts").path
-    }()
     var scheduleTime = "08:00"
     var timezone = "Europe/Istanbul"
     var model = "auto"
     var prompt = "Respond with OK."
     var timeout = 120
     var enabled = false
+    var backgroundEnabled = false
     var catchUp = true
-    var repositoryURL = ""
-    var branch = "main"
-    var retainReleases = 5
     var telegramUserID = ""
     var telegramChatID = ""
     var notificationID = ""
     var telegramEnabled = false
     var notificationIsChannel = false
-    var autoUpdate = false
-    var autoApplyUpdates = false
-    var protectedBranchConfirmed = false
+
+    enum CodingKeys: String, CodingKey {
+        case scheduleTime, timezone, model, prompt, timeout, enabled, backgroundEnabled, catchUp
+        case telegramUserID, telegramChatID, notificationID, telegramEnabled, notificationIsChannel
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        scheduleTime = try values.decodeIfPresent(String.self, forKey: .scheduleTime) ?? scheduleTime
+        timezone = try values.decodeIfPresent(String.self, forKey: .timezone) ?? timezone
+        model = try values.decodeIfPresent(String.self, forKey: .model) ?? model
+        prompt = try values.decodeIfPresent(String.self, forKey: .prompt) ?? prompt
+        timeout = try values.decodeIfPresent(Int.self, forKey: .timeout) ?? timeout
+        enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+        backgroundEnabled = try values.decodeIfPresent(Bool.self, forKey: .backgroundEnabled) ?? backgroundEnabled
+        catchUp = try values.decodeIfPresent(Bool.self, forKey: .catchUp) ?? catchUp
+        telegramUserID = try values.decodeIfPresent(String.self, forKey: .telegramUserID) ?? telegramUserID
+        telegramChatID = try values.decodeIfPresent(String.self, forKey: .telegramChatID) ?? telegramChatID
+        notificationID = try values.decodeIfPresent(String.self, forKey: .notificationID) ?? notificationID
+        telegramEnabled = try values.decodeIfPresent(Bool.self, forKey: .telegramEnabled) ?? telegramEnabled
+        notificationIsChannel = try values.decodeIfPresent(Bool.self, forKey: .notificationIsChannel) ?? notificationIsChannel
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(scheduleTime, forKey: .scheduleTime)
+        try values.encode(timezone, forKey: .timezone)
+        try values.encode(model, forKey: .model)
+        try values.encode(prompt, forKey: .prompt)
+        try values.encode(timeout, forKey: .timeout)
+        try values.encode(enabled, forKey: .enabled)
+        try values.encode(backgroundEnabled, forKey: .backgroundEnabled)
+        try values.encode(catchUp, forKey: .catchUp)
+        try values.encode(telegramUserID, forKey: .telegramUserID)
+        try values.encode(telegramChatID, forKey: .telegramChatID)
+        try values.encode(notificationID, forKey: .notificationID)
+        try values.encode(telegramEnabled, forKey: .telegramEnabled)
+        try values.encode(notificationIsChannel, forKey: .notificationIsChannel)
+    }
 }

@@ -1,36 +1,24 @@
 from __future__ import annotations
 
-import json
 import os
 import platform
 import shutil
-import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 from .claude import discover_claude
 from .config import load_config
 from .errors import AppError, ErrorCode
+from .io_utils import read_json
 from .paths import AppPaths
 from .state import load_state
 
 SUPPORTED_ARCHES = {"arm64", "aarch64", "x86_64", "amd64"}
 
 
-def _credential_status(paths: AppPaths, name: str) -> dict[str, Any]:
-    directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    candidates = [paths.secrets_dir / name, paths.secrets_dir / f"{name}.cred"]
-    if directory:
-        candidates.insert(0, Path(directory) / name)
-    for candidate in candidates:
-        try:
-            mode = candidate.stat().st_mode & 0o777
-            if candidate.is_file() and candidate.stat().st_size > 0:
-                return {"configured": True, "permissions_secure": mode & 0o077 == 0}
-        except OSError:
-            continue
-    return {"configured": False, "permissions_secure": False}
+def _background_status(paths: AppPaths) -> dict[str, Any]:
+    value = read_json(paths.runtime_dir / "background.json", {})
+    return value if isinstance(value, dict) else {}
 
 
 def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str, Any]:
@@ -38,9 +26,11 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
     config = load_config(paths, create=True)
     state = load_state(paths)
     capabilities = discover_claude()
+    operating_system = platform.system()
     architecture = platform.machine().lower()
     disk = shutil.disk_usage(paths.base)
     checks: dict[str, Any] = {
+        "operating_system": {"ok": operating_system == "Darwin", "value": operating_system},
         "architecture": {"ok": architecture in SUPPORTED_ARCHES, "value": architecture},
         "python": {
             "ok": (3, 10) <= sys.version_info[:2] <= (3, 13),
@@ -48,10 +38,9 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
         },
         "disk": {"ok": disk.free >= 200 * 1024 * 1024, "free_bytes": disk.free},
         "config": {"ok": True, "schema_version": config["schema_version"]},
-        "state": {"ok": state.get("schema_version") == 1},
+        "state": {"ok": state.get("schema_version") == 2},
         "claude": {"ok": capabilities.executable is not None, **capabilities.public_dict()},
-        "oauth_credential": _credential_status(paths, "claude_oauth_token"),
-        "telegram_credential": _credential_status(paths, "telegram_token"),
+        "background": {"ok": True, **_background_status(paths)},
     }
     if include_services:
         checks["services"] = service_status()
@@ -60,37 +49,34 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
 
 
 def service_status() -> dict[str, Any]:
-    systemctl = shutil.which("systemctl")
-    if not systemctl:
-        return {"ok": True, "available": False, "units": {}}
-    units = {}
-    for unit in (
-        "claude-window-starter-run.timer",
-        "claude-window-starter-telegram.service",
-        "claude-window-starter-update-check.timer",
+    """Return launchd availability without changing any jobs."""
+    launchctl = shutil.which("launchctl")
+    if not launchctl:
+        return {"ok": True, "available": False, "jobs": {}}
+    jobs: dict[str, Any] = {}
+    for label in (
+        "com.openai.claude-window-starter.background",
+        "com.openai.claude-window-starter.telegram",
     ):
+        import subprocess
+
         process = subprocess.run(
-            [systemctl, "--user", "show", unit, "--property=ActiveState,SubState", "--output=json"],
-            stdout=subprocess.PIPE,
+            [launchctl, "print", f"gui/{os.getuid()}/{label}"],
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            text=True,
             timeout=5,
             check=False,
             shell=False,
         )
-        value: Any = {"active": False}
-        if process.returncode == 0:
-            try:
-                value = json.loads(process.stdout)
-            except json.JSONDecodeError:
-                value = {"active": "ActiveState=active" in process.stdout}
-        units[unit] = value
-    return {"ok": True, "available": True, "units": units}
+        jobs[label] = {"active": process.returncode == 0}
+    return {"ok": True, "available": True, "jobs": jobs}
 
 
 def diagnose(paths: AppPaths) -> dict[str, Any]:
     report = health_report(paths)
     architecture = platform.machine().lower()
+    if platform.system() != "Darwin":
+        raise AppError(ErrorCode.UNSUPPORTED_OS, "Claude Window Starter 2 requires macOS")
     if architecture not in SUPPORTED_ARCHES:
         raise AppError(ErrorCode.UNSUPPORTED_ARCH, f"Unsupported architecture: {architecture}")
     report["environment"] = {

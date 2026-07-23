@@ -59,7 +59,6 @@ class ClaudeTests(unittest.TestCase):
 
     def config(self) -> dict[str, object]:
         value = json.loads(json.dumps(DEFAULT_CONFIG))
-        value["execution_mode"] = "this_mac"
         return value
 
     def test_discovery_reports_version_without_help_dump(self) -> None:
@@ -69,7 +68,7 @@ class ClaudeTests(unittest.TestCase):
         self.assertNotIn("help_text", capability.public_dict())
 
     def test_dry_run_never_sends_request(self) -> None:
-        result = run_claude(self.paths, self.config(), trigger="server_cli", dry_run=True)
+        result = run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=True)
         self.assertFalse(result["real_request_sent"])
 
     def test_invocation_isolates_tools_settings_and_mcp(self) -> None:
@@ -80,15 +79,24 @@ class ClaudeTests(unittest.TestCase):
         self.assertIn("--strict-mcp-config", arguments)
 
     def test_auto_model_uses_haiku_and_records_unverified_window(self) -> None:
-        result = run_claude(self.paths, self.config(), trigger="server_cli", dry_run=False)
+        result = run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=False)
         self.assertTrue(result["real_request_sent"])
         self.assertEqual(result["selected_model"], "claude-haiku-test")
         self.assertFalse(result["usage_window_verification"]["verified"])
 
+    def test_background_trigger_counts_as_automatic_and_is_once_daily(self) -> None:
+        config = self.config()
+        config["enabled"] = True
+        result = run_claude(self.paths, config, trigger="background", dry_run=False)
+        self.assertTrue(result["real_request_sent"])
+        with self.assertRaises(AppError) as context:
+            run_claude(self.paths, config, trigger="background", dry_run=False)
+        self.assertEqual(context.exception.code, ErrorCode.ALREADY_RAN_TODAY)
+
     def test_api_key_stops_real_execution(self) -> None:
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "not-logged"}):
             with self.assertRaises(AppError) as context:
-                run_claude(self.paths, self.config(), trigger="server_cli", dry_run=False)
+                run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=False)
         self.assertEqual(context.exception.code, ErrorCode.API_KEY_DETECTED)
 
 

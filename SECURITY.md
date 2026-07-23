@@ -1,32 +1,23 @@
-# Security model
+# Güvenlik modeli
 
-## Credentials
+## Sırlar
 
-Never paste a token, SSH private key, Git credential, cookie, or raw environment dump into a chat, issue, log, or Git commit.
+Telegram tokenı SecureField/stdin üzerinden macOS Keychain’e yazılır. Token config, state, argv, environment, log veya release içine yazılmaz. Keychain’den okuyan launchd helper tokenı anonim stdin üzerinden bot process’ine aktarır.
 
-`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, custom gateways, Bedrock, Vertex, Foundry, and `apiKeyHelper` stop real execution. Oracle accepts only the subscription OAuth token produced by `claude setup-token`.
+Claude çalışması shell=False, prompt stdin, allowlist environment, boş araç seti, session persistence kapalı, capability-gated bayraklar ve timeout ile yürütülür. Yasaklı API/provider değişkenleri algılanırsa gerçek çağrı durur.
 
-- Mac secrets are written through SecureField/stdin and stored in Keychain.
-- Oracle secrets are entered through hidden stdin and stored with `LoadCredentialEncrypted` when supported, otherwise in mode-0600 files.
-- Git push uses the owner’s existing Mac credential.
-- Oracle generates its deploy private key locally; only the public key leaves the server.
-- Secrets, auth files, SSH private keys, runtime data, and local config are excluded from releases and Git.
+## Arka plan
 
-## Process isolation
+Uygulama yalnız process-scoped IOPMAssertion kullanır; pmset, sudo veya sistem genelindeki güç ayarlarını değiştirmez. Assertion ekran uykusunu engellemez. Kapak kapatma gibi zorunlu uyku durumlarında macOS çalışmayı durdurabilir; uyanma sonrası durum ve ağ yeniden değerlendirilir.
 
-Claude runs with `shell=False`, prompt over stdin, an allowlisted environment, no tools, no session persistence, capability-gated flags, a timeout, and a dedicated runtime directory. Dry-run cannot invoke `claude -p`.
+## Telegram
 
-Systemd services run as the password-locked, non-login `claude-starter` user with `NoNewPrivileges`, private temporary/device views, an empty capability set, strict filesystem protection, and no inbound listener.
+Komutlar sayısal kullanıcı/sohbet allowlist’i, private-chat varsayılanı, cooldown, escaping ve kullanıcıya bağlı kısa ömürlü confirmation nonce’larıyla korunur. Polling offset’i atomik kaydedilir; bot lock çift instance’ı engeller. Ham Telegram update, tam stderr ve environment loglanmaz.
 
-## Git and release trust
+## Release
 
-- The Mac is the authoring repository; the user performs remote creation and push.
-- Oracle accepts only a configured `git@github.com:OWNER/REPO.git` origin and branch head.
-- GitHub’s Ed25519 host key must match `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`.
-- The deploy key has no write permission.
-- Updates fetch into a bare mirror and extract a validated `git archive`; hooks, untracked files, submodules, symlinks, path traversal, and secret-like tracked content are rejected.
-- Private GitHub CI state is not claimed as machine-verified without a GitHub API credential. Protected `main` and required checks remain an external prerequisite.
+Release’ler Mac’te immutable dizinlerde tutulur. Config, state, log ve Keychain dışı sırlar release’lerden bağımsızdır. current ve previous geçici symlink + atomik rename ile değiştirilir; post-health başarısızlığında eski release geri alınır. Beş release tutulurken aktif ve fallback release’ler korunur.
 
-## Incident response
+## Olay müdahalesi
 
-Revoke an exposed token/key first, stop affected services, rotate the credential, and review sanitized JSONL logs plus private repository history. Never attach complete stderr, Telegram update payloads, Claude auth files, or shared runtime directories to a report.
+Bir sır açığa çıkarsa önce tokenı iptal edin ve yenisini üretin. Loglarda yalnız sanitize edilmiş JSONL alanları bulunur. Sırları sohbet, issue veya Git geçmişine yapıştırmayın.

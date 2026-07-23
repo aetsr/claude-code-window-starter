@@ -1,79 +1,60 @@
 # Claude Window Starter
 
-Claude Window Starter sends one short, genuine Claude Code subscription request at a configured daily time. The source repository lives on the Mac, the owner pushes it to a private GitHub repository, and Oracle Ubuntu fetches immutable releases through a read-only deploy key.
+Claude Window Starter, Mac üzerinde günlük tek bir gerçek Claude Code abonelik isteğini güvenli biçimde başlatır. Uygulama macOS 13+ için hazırlanmıştır.
 
-No Anthropic API key is accepted. The project does not open an inbound port, scrape Claude, automate MFA/CAPTCHA, or claim that a successful request proves the five-hour usage window started.
+Başarılı bir Claude yanıtı, beş saatlik kullanım penceresinin başladığını teknik olarak kanıtlamaz. Otomasyon, Telegram ve arka planda çalışma varsayılan olarak kapalıdır.
 
-## Safe defaults
+## Güvenli varsayılanlar
 
-- Automation, Telegram, automatic update checks, and automatic apply are disabled.
-- Prompt: `Respond with OK.`; model: `auto`.
-- Time: `08:00 Europe/Istanbul`; timeout: 120 seconds.
-- Five releases are retained.
-- The Python runtime has no third-party dependencies.
-- Secrets, local config, state, logs, build output, and machine-specific files are ignored by Git.
+- Saat: 08:00 Europe/Istanbul
+- Prompt: Respond with OK.
+- Model: auto
+- Timeout: 120 saniye
+- Beş yerel release tutulur.
+- Runtime Python yalnızca standart kütüphaneye dayanır.
+- Config, state, loglar ve Keychain sırları Git dışında kalır.
 
-## Mac build and installation
+## Kurulum
 
-```sh
-scripts/build-local.sh
-scripts/install-macos.sh
-open "/Applications/Claude Window Starter.app"
-```
+    scripts/build-local.sh
+    scripts/install-macos.sh
+    open "/Applications/Claude Window Starter.app"
 
-The installer creates an ad-hoc signed local app bundle, installs the backend under `~/Library/Application Support/ClaudeWindowStarter`, and loads a disabled-by-default LaunchAgent. Local settings persist in `UserDefaults`; secrets use the macOS Keychain and are never displayed again.
+Kurulum backend’i ~/Library/Application Support/ClaudeWindowStarter altına yerleştirir, uygulamayı /Applications içine koyar ve launchd yardımcılarını yükler. Ayarlar kalıcıdır; Telegram tokenı yalnız Keychain’de tutulur.
 
-Remove the app while preserving local state:
+Kaldırma:
 
-```sh
-scripts/uninstall-macos.sh
-```
+    scripts/uninstall-macos.sh
 
-Use `scripts/uninstall-macos.sh --purge` only when config, state, logs, and Keychain credentials must also be deleted.
+--purge yalnız config/state/logları da silmek istediğinizde kullanılmalıdır. Keychain değerleri kullanıcı onayı olmadan geri gösterilmez.
 
-## Private Git repository
+## Arka planda çalışma
 
-Codex does not need GitHub credentials and does not push the repository. Use your existing local Git authentication:
+Uygulamadaki “Arka Planda Çalışma: Kapalı | Açık” segmenti:
 
-```sh
-git remote add origin git@github.com:OWNER/PRIVATE_REPO.git
-git push -u origin main
-git push origin v1.0.0
-```
+- Açık: ekran kararabilir, boşta sistem uykusu uygulama assertion’ı ile önlenir; internet geçişleri izlenir.
+- Kapalı: sürekli uyku assertion’ı tutulmaz.
 
-Protect `main`, require the `CI` workflow, and disallow direct bypass where practical. No GitHub API token is stored on Oracle.
+Kapak kapatma macOS’ta zorunlu uyku olduğundan, aksesuar olmayan kapalı-kapak durumunda sürekli çalışma garanti edilemez. Sistem uyursa sayaç mutlak zamana göre korunur; uyanıp internet geldiğinde bekleyen çalışma tek kez denenir.
 
-## Oracle bootstrap
+## Telegram
 
-Create a clean bootstrap archive after the production commit:
+BotFather’dan botu oluşturup tokenı uygulamadaki SecureField ile Keychain’e kaydedin. Kullanıcı ve özel sohbet ID’lerini sayısal allowlist alanlarına girin, ayarları kaydedin ve Telegram bağlantısını test edin. Kanal yalnız bildirim hedefidir; komutlar private-chat allowlist’ine bağlıdır.
 
-```sh
-scripts/create-server-bootstrap.sh
-```
+Komutlar: /status, /health, /diagnose, /run, /dryrun, /schedule, /settime, /timezone, /settimezone, /enable, /disable, /background, /next, /last, /logs, /model, /setmodel, /prompt, /setprompt, /timer, /version.
 
-Transfer the printed archive and checksum with your own SSH client. On Oracle, verify the checksum, extract the archive, run `scripts/diagnose-server.sh`, then run `sudo scripts/install-server.sh COMMIT_SHA`.
+Run ve prompt değişikliği kullanıcıya ve sohbete bağlı, kısa ömürlü confirmation nonce’ı ister. Polling offset’i atomik kaydedilir ve tek bot kilidiyle çift instance engellenir.
 
-The installer:
+## CLI
 
-1. runs a read-only preflight before mutation;
-2. verifies the official Claude stable APT signing key;
-3. creates the locked `claude-starter` service account;
-4. installs an immutable initial release and hardened user services;
-5. generates a server-local deploy private key;
-6. prints only the public key to add to GitHub.
+    status | diagnose | health | run | config | schedule
+    telegram-bot | telegram-test | logs | service
+    releases | rollback | version
 
-After the public key is added, configure the private SSH URL and protected branch. Updates use `git fetch` plus `git archive`; the active release is never modified with `git pull`.
+--json sürümlemeli sonuç zarfı üretir. Gerçek Claude ve Telegram testleri kullanıcı açıkça etkinleştirmeden çalıştırılmaz.
 
-See [Oracle setup](docs/ORACLE.md), [deployment and rollback](docs/DEPLOYMENT.md), [Telegram](docs/TELEGRAM.md), [macOS](docs/MACOS.md), and [security](SECURITY.md).
+## Yerel release ve rollback
 
-## Stable CLI
+Her kurulum kendi immutable release dizinine, manifestine, current/previous symlink’lerine ve sağlık sonucuna sahiptir. Sağlıksız release etkinleştirilmez; rollback yalnız sağlıklı yerel release’e yapılır. Varsayılan retention beştir.
 
-```text
-status | diagnose | health | run | config | schedule
-telegram-bot | telegram-test
-update | releases | rollback | logs | service | version
-```
-
-Automation consumers use `--json`, which emits the versioned result envelope. Credential input is available through `credential store NAME`, reads stdin only, and never returns the secret.
-
-Real Claude and Telegram tests stay opt-in. Enable them only on the intended target after dry-run and health checks succeed.
+Detaylar için docs/MACOS.md, docs/TELEGRAM.md, docs/LOCAL_RELEASES.md, docs/TROUBLESHOOTING.md ve SECURITY.md belgelerine bakın.

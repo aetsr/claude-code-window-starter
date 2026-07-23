@@ -12,7 +12,7 @@ from claude_starter.errors import AppError, ErrorCode
 from claude_starter.io_utils import atomic_write_json
 from claude_starter.locks import FileLock
 from claude_starter.paths import AppPaths
-from claude_starter.scheduler import catch_up_due, next_run
+from claude_starter.scheduler import automatic_due, clear_pending, mark_pending, next_run
 from claude_starter.state import load_state, update_state
 
 
@@ -27,38 +27,38 @@ class ConfigStateTests(unittest.TestCase):
 
     def test_default_config_is_safe_and_created_atomically(self) -> None:
         config = load_config(self.paths, create=True)
+        self.assertEqual(config["schema_version"], 2)
         self.assertFalse(config["enabled"])
+        self.assertFalse(config["background_enabled"])
         self.assertFalse(config["telegram"]["enabled"])
-        self.assertFalse(config["deployment"]["auto_apply_updates"])
         self.assertEqual(self.paths.config_file.stat().st_mode & 0o777, 0o600)
 
-    def test_invalid_schedule_is_rejected(self) -> None:
+    def test_v1_config_migrates_without_removed_fields(self) -> None:
+        old = json.loads(json.dumps(DEFAULT_CONFIG))
+        old["schema_version"] = 1
+        old["removed_target"] = "legacy"
+        old["removed_release"] = {"enabled": True}
+        atomic_write_json(self.paths.config_file, old)
+        value = load_config(self.paths)
+        self.assertEqual(value["schema_version"], 2)
+        self.assertNotIn("removed_target", value)
+        self.assertNotIn("removed_release", value)
+
+    def test_invalid_schedule_and_unknown_field_rejected(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["schedule_time"] = "25:00"
         with self.assertRaises(AppError) as context:
             save_config(self.paths, config)
         self.assertEqual(context.exception.code, ErrorCode.CONFIG_INVALID)
-
-    def test_unknown_nested_config_field_is_rejected(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
-        config["deployment"]["private_key"] = "must-never-be-configured-here"
-        with self.assertRaises(AppError) as context:
-            save_config(self.paths, config)
-        self.assertEqual(context.exception.code, ErrorCode.CONFIG_INVALID)
-
-    def test_telegram_requires_numeric_allowlist(self) -> None:
-        config = json.loads(json.dumps(DEFAULT_CONFIG))
-        config["telegram"]["enabled"] = True
-        config["telegram"]["allowed_user_ids"] = ["123"]
+        config["telegram"]["unknown"] = True
         with self.assertRaises(AppError):
             save_config(self.paths, config)
 
     def test_state_update_preserves_schema(self) -> None:
-        state = update_state(
-            self.paths, lambda current: current.__setitem__("last_automatic_date", "2026-07-23")
-        )
+        state = update_state(self.paths, lambda current: current.__setitem__("last_automatic_date", "2026-07-23"))
         self.assertEqual(state["last_automatic_date"], "2026-07-23")
-        self.assertEqual(load_state(self.paths)["schema_version"], 1)
+        self.assertEqual(load_state(self.paths)["schema_version"], 2)
 
     def test_second_lock_is_rejected(self) -> None:
         with FileLock(self.paths.run_lock):
@@ -67,22 +67,31 @@ class ConfigStateTests(unittest.TestCase):
                     pass
         self.assertEqual(context.exception.code, ErrorCode.LOCK_UNAVAILABLE)
 
-    def test_next_run_and_same_day_catchup(self) -> None:
+    def test_next_run_and_pending_due(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["enabled"] = True
         now = datetime(2026, 7, 23, 9, 0, tzinfo=ZoneInfo("Europe/Istanbul"))
         self.assertEqual(next_run(config, now).date().isoformat(), "2026-07-24")
-        self.assertTrue(catch_up_due(self.paths, config, now))
+        self.assertTrue(automatic_due(self.paths, config, now))
+        update_state(self.paths, lambda state: state.__setitem__("last_automatic_date", "2026-07-23"))
+        self.assertFalse(automatic_due(self.paths, config, now))
+
+    def test_pending_connectivity_uses_backoff_then_retries(self) -> None:
+        config = json.loads(json.dumps(DEFAULT_CONFIG))
+        config["enabled"] = True
+        mark_pending(self.paths, config, "NETWORK_UNAVAILABLE")
+        self.assertFalse(automatic_due(self.paths, config))
         update_state(
-            self.paths, lambda state: state.__setitem__("last_automatic_date", "2026-07-23")
+            self.paths,
+            lambda state: state.__setitem__(
+                "next_automatic_retry_at", "2000-01-01T00:00:00+00:00"
+            ),
         )
-        self.assertFalse(catch_up_due(self.paths, config, now))
+        self.assertTrue(automatic_due(self.paths, config))
+        clear_pending(self.paths)
+        self.assertIsNone(load_state(self.paths)["pending_automatic"])
 
     def test_atomic_json_replaces_complete_document(self) -> None:
-        atomic_write_json(self.paths.state_file, {"schema_version": 1, "value": "old"})
-        atomic_write_json(self.paths.state_file, {"schema_version": 1, "value": "new"})
+        atomic_write_json(self.paths.state_file, {"schema_version": 2, "value": "old"})
+        atomic_write_json(self.paths.state_file, {"schema_version": 2, "value": "new"})
         self.assertEqual(json.loads(self.paths.state_file.read_text())["value"], "new")
-
-
-if __name__ == "__main__":
-    unittest.main()
