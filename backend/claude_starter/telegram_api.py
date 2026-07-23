@@ -37,20 +37,33 @@ class TelegramAPI:
 
     def call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
         encoded = urllib.parse.urlencode(_encode_payload(payload or {})).encode("utf-8")
-        request = urllib.request.Request(self._base + method, data=encoded, method="POST")
+        request = urllib.request.Request(  # noqa: S310
+            self._base + method,
+            data=encoded,
+            method="POST",
+        )
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:  # nosec B310
+            with urllib.request.urlopen(  # noqa: S310  # nosec B310
+                request,
+                timeout=self._timeout,
+            ) as response:
                 body = response.read(2 * 1024 * 1024)
         except urllib.error.HTTPError as exc:
             raise AppError(ErrorCode.TELEGRAM_API_ERROR, f"Telegram HTTP error {exc.code}") from exc
         except urllib.error.URLError as exc:
-            raise AppError(ErrorCode.NETWORK_UNAVAILABLE, "Telegram network request failed") from exc
+            raise AppError(
+                ErrorCode.NETWORK_UNAVAILABLE, "Telegram network request failed"
+            ) from exc
         try:
             result = json.loads(body)
         except json.JSONDecodeError as exc:
             raise AppError(ErrorCode.TELEGRAM_API_ERROR, "Telegram returned invalid JSON") from exc
         if not isinstance(result, dict) or not result.get("ok"):
-            description = result.get("description", "Telegram API error") if isinstance(result, dict) else "Telegram API error"
+            description = (
+                result.get("description", "Telegram API error")
+                if isinstance(result, dict)
+                else "Telegram API error"
+            )
             raise AppError(ErrorCode.TELEGRAM_API_ERROR, str(description)[:200])
         return result.get("result")
 
@@ -61,9 +74,15 @@ class TelegramAPI:
     def get_updates(self, offset: int, timeout: int = 50) -> list[dict[str, Any]]:
         result = self.call(
             "getUpdates",
-            {"offset": offset, "timeout": timeout, "allowed_updates": ["message", "callback_query"]},
+            {
+                "offset": offset,
+                "timeout": timeout,
+                "allowed_updates": ["message", "callback_query"],
+            },
         )
-        return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        return (
+            [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        )
 
     def send_message(
         self,
@@ -86,7 +105,7 @@ class TelegramAPI:
 def _encode_payload(payload: dict[str, Any]) -> dict[str, str | int]:
     result: dict[str, str | int] = {}
     for key, value in payload.items():
-        if isinstance(value, (dict, list)):
+        if isinstance(value, dict | list):
             result[key] = json.dumps(value, separators=(",", ":"))
         elif isinstance(value, bool):
             result[key] = "true" if value else "false"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .errors import AppError, ErrorCode
 from .io_utils import atomic_write_json, read_json

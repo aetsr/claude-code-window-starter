@@ -6,6 +6,7 @@ ConditionPathIsDirectory=%h/.local/share/claude-window-starter/current
 
 [Service]
 Type=simple
+UMask=0077
 Environment=CLAUDE_STARTER_HOME=%h/.local/share/claude-window-starter
 Environment=PYTHONUNBUFFERED=1
 LoadCredential=telegram_token:%h/.local/share/claude-window-starter/shared/secrets/telegram_token
@@ -14,8 +15,14 @@ Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
 ReadWritePaths=%h/.local/share/claude-window-starter
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictRealtime=true

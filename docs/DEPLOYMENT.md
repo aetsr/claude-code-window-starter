@@ -1,21 +1,21 @@
-# Private GitHub deployment and rollback
+# Private Git deployment and rollback
 
-Protect `main`, disallow direct pushes/bypass where possible, and require the `CI` workflow. Add the server-generated public key under repository **Deploy keys** without write access. Compare the observed `github.com` fingerprint with GitHub’s official SSH-key fingerprint before allowing `configure-git-deploy-key.sh` to write known_hosts.
+The Mac is the source of truth. The repository owner creates the private remote and pushes with their existing Git authentication. No credential is given to Codex or stored in this project.
 
-Set these non-secret values through the CLI, Telegram, or SwiftUI:
+Protect `main`, require the `CI` workflow, and add Oracle’s generated public deploy key without write access. The server pins GitHub’s official Ed25519 host key and accepts only the configured GitHub SSH origin.
 
-```json
-{
-  "deployment": {
-    "repository_url": "git@github.com:OWNER/PRIVATE_REPO.git",
-    "branch": "main",
-    "protected_branch_confirmed": true
-  }
-}
-```
+`check-update.sh` fetches the configured branch into `shared`’s bare mirror and compares exact commit IDs. `deploy-update.sh`:
 
-`check-update.sh` fetches the configured branch and compares exact commit IDs. `deploy-update.sh` holds an update lock, waits for the Claude lock, builds a separate release from `git archive`, runs tests and health checks, atomically changes symlinks, restarts the bot briefly, and rolls back on failed post-health.
+1. acquires the deployment lock and waits a bounded time for an active Claude run;
+2. validates the remote branch head and rejects submodules;
+3. checks disk capacity;
+4. creates a clean archive with no hooks or untracked files;
+5. rejects unsafe archive paths, links, and secret-like content;
+6. creates an isolated release and runs compile, unit, config, health, Telegram `getMe` when enabled, and systemd checks;
+7. atomically switches `previous` and `current`;
+8. verifies post-switch health;
+9. restores, restarts, and health-checks the previous release on failure.
 
-`list-releases.sh` shows local manifests. `rollback.sh --yes` accepts only the previous locally installed release marked healthy; Telegram never accepts an arbitrary commit. Current, previous, and healthy fallback releases are protected from retention cleanup.
+`rollback.sh --yes` accepts only a locally installed release marked healthy. Retention keeps at least five releases and never removes `current`, `previous`, a running process release, or the newest additional healthy fallback.
 
-Automatic updates are off. Enabling the check timer produces notification-only behavior unless `auto_apply_updates` is also explicitly enabled. The server cannot attest private GitHub Actions status without an API credential, so it never labels CI as machine-verified.
+Automatic checks and automatic apply are independent and both default to off. The server reports private GitHub CI as an external protected-branch requirement, not as machine-verified.

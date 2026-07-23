@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,13 +20,13 @@ SUPPORTED_ARCHES = {"arm64", "aarch64", "x86_64", "amd64"}
 
 def _credential_status(paths: AppPaths, name: str) -> dict[str, Any]:
     directory = os.environ.get("CREDENTIALS_DIRECTORY")
-    candidates = [paths.secrets_dir / name]
+    candidates = [paths.secrets_dir / name, paths.secrets_dir / f"{name}.cred"]
     if directory:
         candidates.insert(0, Path(directory) / name)
     for candidate in candidates:
         try:
             mode = candidate.stat().st_mode & 0o777
-            if candidate.is_file():
+            if candidate.is_file() and candidate.stat().st_size > 0:
                 return {"configured": True, "permissions_secure": mode & 0o077 == 0}
         except OSError:
             continue
@@ -41,7 +42,10 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
     disk = shutil.disk_usage(paths.base)
     checks: dict[str, Any] = {
         "architecture": {"ok": architecture in SUPPORTED_ARCHES, "value": architecture},
-        "python": {"ok": True, "value": platform.python_version()},
+        "python": {
+            "ok": (3, 10) <= sys.version_info[:2] <= (3, 13),
+            "value": platform.python_version(),
+        },
         "disk": {"ok": disk.free >= 200 * 1024 * 1024, "free_bytes": disk.free},
         "config": {"ok": True, "schema_version": config["schema_version"]},
         "state": {"ok": state.get("schema_version") == 1},

@@ -114,11 +114,13 @@ struct ContentView: View {
         Form {
             TextField("Private GitHub SSH URL", text: $model.settings.repositoryURL)
             TextField("Protected branch", text: $model.settings.branch)
+            Toggle("Protected branch and required checks confirmed", isOn: $model.settings.protectedBranchConfirmed)
             TextField("Verified GitHub ED25519 fingerprint", text: $model.githubFingerprint)
             Button("Generate/configure read-only deploy key") { model.configureGitDeployKey() }
             Stepper("Retain releases: \(model.settings.retainReleases)", value: $model.settings.retainReleases, in: 2...20)
             Toggle("Automatic update checks", isOn: $model.settings.autoUpdate)
             Toggle("Automatically apply updates", isOn: $model.settings.autoApplyUpdates)
+                .disabled(!model.settings.autoUpdate)
             HStack {
                 Button("Check updates") { model.perform(["update", "--check"]) }
                 Button("Apply update") { model.perform(["update", "--apply"]) }

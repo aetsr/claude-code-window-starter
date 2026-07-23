@@ -58,13 +58,13 @@ enum JSONValue: Codable, Sendable, CustomStringConvertible {
     }
 }
 
-enum ExecutionTarget: String, CaseIterable, Identifiable {
+enum ExecutionTarget: String, CaseIterable, Identifiable, Codable {
     case oracle = "Oracle Server"
     case thisMac = "This Mac"
     var id: String { rawValue }
 }
 
-struct ClientSettings {
+struct ClientSettings: Codable, Equatable {
     var target: ExecutionTarget = .oracle
     var host = ""
     var port = 22
@@ -91,4 +91,5 @@ struct ClientSettings {
     var notificationIsChannel = false
     var autoUpdate = false
     var autoApplyUpdates = false
+    var protectedBranchConfirmed = false
 }

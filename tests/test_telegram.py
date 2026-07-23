@@ -17,7 +17,9 @@ class FakeAPI:
         self.messages: list[tuple[int, str, dict[str, Any] | None]] = []
         self.callbacks: list[tuple[str, str]] = []
 
-    def send_message(self, chat_id: int, text: str, *, reply_markup: dict[str, Any] | None = None) -> None:
+    def send_message(
+        self, chat_id: int, text: str, *, reply_markup: dict[str, Any] | None = None
+    ) -> None:
         self.messages.append((chat_id, text, reply_markup))
 
     def answer_callback(self, callback_id: str, text: str) -> None:
@@ -31,7 +33,12 @@ class TelegramTests(unittest.TestCase):
         self.paths.ensure()
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["telegram"].update(
-            {"enabled": True, "allowed_user_ids": [100], "allowed_chat_ids": [100], "command_cooldown_seconds": 0}
+            {
+                "enabled": True,
+                "allowed_user_ids": [100],
+                "allowed_chat_ids": [100],
+                "command_cooldown_seconds": 1,
+            }
         )
         save_config(self.paths, config)
         self.api = FakeAPI()
@@ -46,15 +53,40 @@ class TelegramTests(unittest.TestCase):
         self.assertFalse(self.bot.authorized(100, -200, "group"))
 
     def test_unauthorized_response_reveals_nothing(self) -> None:
-        self.bot.handle_update({"message": {"from": {"id": 999}, "chat": {"id": 999, "type": "private"}, "text": "/status"}})
+        self.bot.handle_update(
+            {
+                "message": {
+                    "from": {"id": 999},
+                    "chat": {"id": 999, "type": "private"},
+                    "text": "/status",
+                }
+            }
+        )
         self.assertEqual(self.api.messages[-1][1], "Unauthorized")
 
     def test_setprompt_requires_owner_bound_confirmation(self) -> None:
-        self.bot.handle_update({"message": {"from": {"id": 100}, "chat": {"id": 100, "type": "private"}, "text": "/setprompt Respond safely"}})
+        self.bot.handle_update(
+            {
+                "message": {
+                    "from": {"id": 100},
+                    "chat": {"id": 100, "type": "private"},
+                    "text": "/setprompt Respond safely",
+                }
+            }
+        )
         markup = self.api.messages[-1][2]
         self.assertIsNotNone(markup)
         callback_data = markup["inline_keyboard"][0][0]["callback_data"]  # type: ignore[index]
-        self.bot.handle_update({"callback_query": {"id": "cb", "from": {"id": 101}, "message": {"chat": {"id": 100, "type": "private"}}, "data": callback_data}})
+        self.bot.handle_update(
+            {
+                "callback_query": {
+                    "id": "cb",
+                    "from": {"id": 101},
+                    "message": {"chat": {"id": 100, "type": "private"}},
+                    "data": callback_data,
+                }
+            }
+        )
         self.assertEqual(self.api.callbacks[-1][1], "Unauthorized")
 
     def test_long_messages_are_split_under_limit(self) -> None:

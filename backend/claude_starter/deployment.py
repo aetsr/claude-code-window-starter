@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -48,8 +47,7 @@ def _run(
         return subprocess.run(
             argv,
             input=input_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             timeout=timeout,
             check=False,
             shell=False,
@@ -57,11 +55,17 @@ def _run(
             cwd=cwd,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise AppError(ErrorCode.DEPLOYMENT_FAILED, f"Command failed: {Path(argv[0]).name}") from exc
+        raise AppError(
+            ErrorCode.DEPLOYMENT_FAILED, f"Command failed: {Path(argv[0]).name}"
+        ) from exc
 
 
 def _git_env(paths: AppPaths, repository_url: str) -> dict[str, str]:
-    environment = {key: value for key, value in os.environ.items() if key in {"HOME", "PATH", "LANG", "LC_ALL", "TMPDIR"}}
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key in {"HOME", "PATH", "LANG", "LC_ALL", "TMPDIR"}
+    }
     environment["GIT_CONFIG_NOSYSTEM"] = "1"
     environment["GIT_TERMINAL_PROMPT"] = "0"
     wrapper = paths.config_dir / "git-ssh-wrapper"
@@ -74,7 +78,9 @@ def _git_env(paths: AppPaths, repository_url: str) -> dict[str, str]:
 
 
 def _validate_repository(url: str) -> None:
-    if os.environ.get("CLAUDE_STARTER_ALLOW_LOCAL_GIT") == "1" and (url.startswith("file://") or Path(url).is_absolute()):
+    if os.environ.get("CLAUDE_STARTER_ALLOW_LOCAL_GIT") == "1" and (
+        url.startswith("file://") or Path(url).is_absolute()
+    ):
         return
     if not re.fullmatch(r"git@github\.com:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git", url):
         raise AppError(ErrorCode.CONFIG_INVALID, "Only GitHub SSH repository URLs are accepted")
@@ -120,24 +126,58 @@ class ReleaseManager:
                 raise AppError(ErrorCode.GIT_NOT_FOUND)
             init = _run([git, "init", "--bare", str(self.paths.repo)])
             if init.returncode != 0:
-                raise AppError(ErrorCode.RELEASE_PREPARATION_FAILED, "Unable to create bare repository")
-            self._git(["--git-dir", str(self.paths.repo), "remote", "add", "origin", config["repository_url"]], config)
-        remote = self._git(["--git-dir", str(self.paths.repo), "remote", "get-url", "origin"], config)
+                raise AppError(
+                    ErrorCode.RELEASE_PREPARATION_FAILED, "Unable to create bare repository"
+                )
+            self._git(
+                [
+                    "--git-dir",
+                    str(self.paths.repo),
+                    "remote",
+                    "add",
+                    "origin",
+                    config["repository_url"],
+                ],
+                config,
+            )
+        remote = self._git(
+            ["--git-dir", str(self.paths.repo), "remote", "get-url", "origin"], config
+        )
         if remote != config["repository_url"]:
-            raise AppError(ErrorCode.GIT_REPOSITORY_UNREACHABLE, "Configured repository does not match mirror origin")
+            raise AppError(
+                ErrorCode.GIT_REPOSITORY_UNREACHABLE,
+                "Configured repository does not match mirror origin",
+            )
 
     def fetch_target(self) -> tuple[dict[str, Any], str]:
         config = self._deployment_config()
         self._ensure_repo(config)
         branch = config["branch"]
         refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
-        self._git(["--git-dir", str(self.paths.repo), "fetch", "--prune", "origin", refspec], config, timeout=300)
-        target = self._git(["--git-dir", str(self.paths.repo), "rev-parse", "--verify", f"refs/remotes/origin/{branch}^{{commit}}"], config)
+        self._git(
+            ["--git-dir", str(self.paths.repo), "fetch", "--prune", "origin", refspec],
+            config,
+            timeout=300,
+        )
+        target = self._git(
+            [
+                "--git-dir",
+                str(self.paths.repo),
+                "rev-parse",
+                "--verify",
+                f"refs/remotes/origin/{branch}^{{commit}}",
+            ],
+            config,
+        )
         if not re.fullmatch(r"[0-9a-f]{40,64}", target):
             raise AppError(ErrorCode.UNTRUSTED_COMMIT)
-        tree = self._git(["--git-dir", str(self.paths.repo), "ls-tree", "-r", "--full-tree", target], config)
+        tree = self._git(
+            ["--git-dir", str(self.paths.repo), "ls-tree", "-r", "--full-tree", target], config
+        )
         if any(line.startswith("160000 ") for line in tree.splitlines()):
-            raise AppError(ErrorCode.UNTRUSTED_COMMIT, "Submodules are not accepted in production releases")
+            raise AppError(
+                ErrorCode.UNTRUSTED_COMMIT, "Submodules are not accepted in production releases"
+            )
         return config, target
 
     def active_manifest(self) -> dict[str, Any] | None:
@@ -178,9 +218,12 @@ class ReleaseManager:
                 if path.is_absolute() or ".." in path.parts or member.issym() or member.islnk():
                     raise AppError(ErrorCode.RELEASE_PREPARATION_FAILED, "Unsafe archive member")
                 if any(pattern.search(member.name) for pattern in SECRET_PATH_PATTERNS):
-                    raise AppError(ErrorCode.RELEASE_PREPARATION_FAILED, "Repository contains a forbidden secret path")
+                    raise AppError(
+                        ErrorCode.RELEASE_PREPARATION_FAILED,
+                        "Repository contains a forbidden secret path",
+                    )
             # Members were rejected above if absolute, traversing, symlinked, or hard-linked.
-            handle.extractall(destination)  # nosec B202
+            handle.extractall(destination)  # noqa: S202  # nosec B202
         self._scan_extracted_secrets(destination)
 
     def _scan_extracted_secrets(self, destination: Path) -> None:
@@ -197,11 +240,23 @@ class ReleaseManager:
                 )
 
     def _prepare_release(self, config: dict[str, Any], target: str) -> Path:
+        if shutil.disk_usage(self.paths.releases).free < 512 * 1024 * 1024:
+            raise AppError(
+                ErrorCode.DISK_SPACE_LOW,
+                "At least 512 MiB of free space is required to stage a release",
+            )
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         release = self.paths.releases / f"{timestamp}-{target[:12]}"
         release.mkdir(mode=0o700)
         archive_process = _run(
-            [shutil.which("git") or "git", "--git-dir", str(self.paths.repo), "archive", "--format=tar", target],
+            [
+                shutil.which("git") or "git",
+                "--git-dir",
+                str(self.paths.repo),
+                "archive",
+                "--format=tar",
+                target,
+            ],
             timeout=120,
             env=_git_env(self.paths, str(config["repository_url"])),
         )
@@ -210,16 +265,24 @@ class ReleaseManager:
         self._safe_extract(archive_process.stdout, release)
         venv = _run([sys.executable, "-m", "venv", str(release / ".venv")], timeout=120)
         if venv.returncode != 0:
-            raise AppError(ErrorCode.DEPENDENCY_INSTALL_FAILED, "Unable to create release virtual environment")
+            raise AppError(
+                ErrorCode.DEPENDENCY_INSTALL_FAILED, "Unable to create release virtual environment"
+            )
         venv_python = release / ".venv/bin/python"
         site = _run(
             [str(venv_python), "-c", "import site; print(site.getsitepackages()[0])"],
             timeout=20,
         )
         if site.returncode != 0:
-            raise AppError(ErrorCode.DEPENDENCY_INSTALL_FAILED, "Unable to inspect release virtual environment")
+            raise AppError(
+                ErrorCode.DEPENDENCY_INSTALL_FAILED,
+                "Unable to inspect release virtual environment",
+            )
         site_path = Path(site.stdout.decode().strip())
-        (site_path / "claude_window_starter.pth").write_text(str(release / "backend") + "\n", encoding="utf-8")
+        (site_path / "claude_window_starter.pth").write_text(
+            str(release / "backend") + "\n",
+            encoding="utf-8",
+        )
         self._predeploy_checks(release, venv_python)
         manifest = {
             "schema_version": 1,
@@ -241,11 +304,21 @@ class ReleaseManager:
     def _predeploy_checks(self, release: Path, python: Path) -> None:
         env = dict(os.environ)
         env.pop("ENABLE_LOCAL_DEPLOYMENT_TEST", None)
-        env["PYTHONPATH"] = str(release / "backend")
+        env.pop("PYTHONPATH", None)
         env["CLAUDE_STARTER_HOME"] = str(self.paths.base)
         checks = [
             [str(python), "-m", "compileall", "-q", str(release / "backend")],
-            [str(python), "-m", "unittest", "discover", "-s", str(release / "tests"), "-p", "test_*.py"],
+            [
+                str(python),
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                str(release / "tests"),
+                "-p",
+                "test_*.py",
+            ],
+            [str(python), "-m", "claude_starter", "config", "validate", "--json"],
             [str(python), "-m", "claude_starter", "health", "--no-services", "--json"],
         ]
         for argv in checks:
@@ -253,8 +326,27 @@ class ReleaseManager:
             if process.returncode != 0:
                 error = sanitize_text(process.stderr.decode("utf-8", "replace"), 400)
                 raise AppError(ErrorCode.PRE_DEPLOY_TEST_FAILED, error or f"Failed: {argv[-1]}")
+        config = load_config(self.paths, create=False)
+        if config["telegram"]["enabled"]:
+            telegram = _run(
+                [
+                    str(python),
+                    "-m",
+                    "claude_starter",
+                    "telegram-test",
+                    "--no-message",
+                    "--json",
+                ],
+                timeout=30,
+                env=env,
+                cwd=release,
+            )
+            if telegram.returncode != 0:
+                raise AppError(ErrorCode.PRE_DEPLOY_TEST_FAILED, "Telegram getMe check failed")
         analyzer = shutil.which("systemd-analyze")
-        units = list((release / "systemd").glob("*.service")) + list((release / "systemd").glob("*.timer"))
+        units = list((release / "systemd").glob("*.service")) + list(
+            (release / "systemd").glob("*.timer")
+        )
         if analyzer and units:
             process = _run([analyzer, "verify", *[str(path) for path in units]], timeout=60)
             if process.returncode != 0:
@@ -267,7 +359,9 @@ class ReleaseManager:
                 ErrorCode.UNTRUSTED_COMMIT,
                 "Confirm GitHub protected-main required checks before production deployment",
             )
-        with FileLock(self.paths.update_lock, timeout=0, error_code=ErrorCode.UPDATE_ALREADY_RUNNING):
+        with FileLock(
+            self.paths.update_lock, timeout=0, error_code=ErrorCode.UPDATE_ALREADY_RUNNING
+        ):
             with FileLock(self.paths.run_lock, timeout=130, error_code=ErrorCode.ALREADY_RUNNING):
                 _, target = self.fetch_target()
                 active = self.active_manifest()
@@ -292,18 +386,26 @@ class ReleaseManager:
                         }
                     )
                     atomic_write_json(release / "release.json", manifest)
-                    result = {"status": "success", "release": release.name, "commit_sha": target, "rollback_performed": False}
+                    result = {
+                        "status": "success",
+                        "release": release.name,
+                        "commit_sha": target,
+                        "rollback_performed": False,
+                    }
                     self._record_deployment(result)
                     self._cleanup(config["retain_releases"])
                     return result
                 except Exception as exc:
                     rolled_back = False
+                    rollback_error: str | None = None
                     if old_current and config["rollback_on_failure"]:
                         try:
                             _atomic_symlink(old_current, self.paths.current)
                             _restart_services()
+                            self._post_health(old_current, config)
                             rolled_back = True
-                        except Exception:
+                        except Exception as rollback_exc:
+                            rollback_error = sanitize_text(str(rollback_exc), 300)
                             rolled_back = False
                     error_message = sanitize_text(str(exc), 300)
                     result = {
@@ -312,12 +414,21 @@ class ReleaseManager:
                         "rollback_performed": rolled_back,
                         "error": error_message,
                     }
+                    if rollback_error:
+                        result["rollback_error"] = rollback_error
                     self._record_deployment(result)
+                    if rollback_error:
+                        raise AppError(
+                            ErrorCode.ROLLBACK_FAILED,
+                            "Deployment failed and the previous release health check also failed",
+                        ) from exc
                     if isinstance(exc, AppError):
                         raise
                     raise AppError(ErrorCode.DEPLOYMENT_FAILED, error_message) from exc
 
     def _post_health(self, release: Path, config: dict[str, Any]) -> None:
+        if os.environ.get("CLAUDE_STARTER_FAULT_POST_HEALTH") == release.name:
+            raise AppError(ErrorCode.HEALTH_CHECK_FAILED, "Injected post-deploy health failure")
         env = dict(os.environ)
         env["PYTHONPATH"] = str(release / "backend")
         env["CLAUDE_STARTER_HOME"] = str(self.paths.base)
@@ -349,7 +460,9 @@ class ReleaseManager:
         return releases
 
     def rollback(self, release_name: str | None = None) -> dict[str, Any]:
-        with FileLock(self.paths.update_lock, timeout=0, error_code=ErrorCode.UPDATE_ALREADY_RUNNING):
+        with FileLock(
+            self.paths.update_lock, timeout=0, error_code=ErrorCode.UPDATE_ALREADY_RUNNING
+        ):
             target: Path | None = None
             if release_name:
                 candidate = self.paths.releases / release_name
@@ -382,27 +495,69 @@ class ReleaseManager:
                     _atomic_symlink(old_current, self.paths.current)
                     _restart_services()
                 raise AppError(ErrorCode.ROLLBACK_FAILED, "Rollback health check failed") from exc
-            result = {"status": "rollback_success", "release": target.name, "commit_sha": manifest.get("commit_sha")}
+            result = {
+                "status": "rollback_success",
+                "release": target.name,
+                "commit_sha": manifest.get("commit_sha"),
+            }
             self._record_deployment(result)
             return result
 
     def _record_deployment(self, result: dict[str, Any]) -> None:
         update_state(self.paths, lambda state: state.__setitem__("last_deployment", result))
-        log_event(self.paths, {"trigger_source": "deployment", "deployment_status": result.get("status"), **result})
+        log_event(
+            self.paths,
+            {"trigger_source": "deployment", "deployment_status": result.get("status"), **result},
+        )
 
     def _cleanup(self, retain: int) -> None:
         protected = {
             path.resolve()
-            for path in (_safe_link_target(self.paths.current, self.paths.releases), _safe_link_target(self.paths.previous, self.paths.releases))
+            for path in (
+                _safe_link_target(self.paths.current, self.paths.releases),
+                _safe_link_target(self.paths.previous, self.paths.releases),
+            )
             if path
         }
-        candidates = sorted((path for path in self.paths.releases.iterdir() if path.is_dir()), reverse=True)
+        protected.update(_running_release_paths(self.paths.releases))
+        candidates = sorted(
+            (path for path in self.paths.releases.iterdir() if path.is_dir()), reverse=True
+        )
+        for path in candidates:
+            manifest = path / "release.json"
+            try:
+                value = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if value.get("healthy") and path.resolve() not in protected:
+                protected.add(path.resolve())
+                break
         kept = 0
         for path in candidates:
             if path.resolve() in protected or kept < max(1, int(retain)):
                 kept += 1
                 continue
             shutil.rmtree(path)
+
+
+def _running_release_paths(releases: Path) -> set[Path]:
+    protected: set[Path] = set()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return protected
+    releases_root = releases.resolve()
+    for process in proc.iterdir():
+        if not process.name.isdigit():
+            continue
+        for candidate in (process / "exe", process / "cwd"):
+            try:
+                target = candidate.resolve(strict=True)
+                relative = target.relative_to(releases_root)
+            except (OSError, ValueError, RuntimeError):
+                continue
+            if relative.parts:
+                protected.add(releases_root / relative.parts[0])
+    return protected
 
 
 def _atomic_symlink(target: Path, link: Path) -> None:
@@ -425,7 +580,9 @@ def _restart_services() -> None:
     systemctl = shutil.which("systemctl")
     if not systemctl or os.environ.get("CLAUDE_STARTER_SKIP_SERVICE_RESTART") == "1":
         return
-    process = _run([systemctl, "--user", "try-restart", "claude-window-starter-telegram.service"], timeout=30)
+    process = _run(
+        [systemctl, "--user", "try-restart", "claude-window-starter-telegram.service"], timeout=30
+    )
     if process.returncode != 0:
         raise AppError(ErrorCode.SERVICE_RESTART_FAILED, "Telegram service restart failed")
 

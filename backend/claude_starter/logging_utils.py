@@ -69,4 +69,7 @@ def tail_sanitized(path: Path, lines: int = 20) -> list[str]:
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8", errors="replace") as handle:
-        return [sanitize_text(line.rstrip(), 1000) for line in handle.readlines()[-max(1, min(lines, 100)):]]
+        return [
+            sanitize_text(line.rstrip(), 1000)
+            for line in handle.readlines()[-max(1, min(lines, 100)) :]
+        ]

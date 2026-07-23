@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var settings = ClientSettings()
+    @Published var settings: ClientSettings
     @Published var statusText = "Not checked"
     @Published var busy = false
     @Published var lastError: String?
@@ -14,6 +14,10 @@ final class AppModel: ObservableObject {
     private var scannedHostKey: ScannedHostKey?
 
     private let backend = BackendClient()
+
+    init(settings: ClientSettings = SettingsStore.load()) {
+        self.settings = settings
+    }
 
     var statusIcon: String { lastError == nil ? (busy ? "clock" : "sparkles") : "exclamationmark.triangle" }
 
@@ -57,15 +61,17 @@ final class AppModel: ObservableObject {
                 "branch": settings.branch,
                 "retain_releases": settings.retainReleases,
                 "auto_update_enabled": settings.autoUpdate,
-                "auto_apply_updates": settings.autoApplyUpdates
+                "auto_apply_updates": settings.autoApplyUpdates,
+                "protected_branch_confirmed": settings.protectedBranchConfirmed
             ]
         ]
         let encoded: Data
         do {
             encoded = try JSONSerialization.data(withJSONObject: document)
+            try SettingsStore.save(settings)
         } catch {
             busy = false
-            lastError = "Configuration could not be encoded."
+            lastError = "Settings could not be saved."
             return
         }
         Task {
@@ -80,8 +86,8 @@ final class AppModel: ObservableObject {
     }
 
     func transferCredential(name: String, value: String) {
-        guard settings.target == .oracle, !value.isEmpty else {
-            lastError = "Select Oracle Server and enter a credential."
+        guard !value.isEmpty else {
+            lastError = "Enter a credential."
             return
         }
         busy = true

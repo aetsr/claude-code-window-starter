@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import unittest
 from datetime import datetime
@@ -40,6 +39,13 @@ class ConfigStateTests(unittest.TestCase):
             save_config(self.paths, config)
         self.assertEqual(context.exception.code, ErrorCode.CONFIG_INVALID)
 
+    def test_unknown_nested_config_field_is_rejected(self) -> None:
+        config = json.loads(json.dumps(DEFAULT_CONFIG))
+        config["deployment"]["private_key"] = "must-never-be-configured-here"
+        with self.assertRaises(AppError) as context:
+            save_config(self.paths, config)
+        self.assertEqual(context.exception.code, ErrorCode.CONFIG_INVALID)
+
     def test_telegram_requires_numeric_allowlist(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["telegram"]["enabled"] = True
@@ -48,7 +54,9 @@ class ConfigStateTests(unittest.TestCase):
             save_config(self.paths, config)
 
     def test_state_update_preserves_schema(self) -> None:
-        state = update_state(self.paths, lambda current: current.__setitem__("last_automatic_date", "2026-07-23"))
+        state = update_state(
+            self.paths, lambda current: current.__setitem__("last_automatic_date", "2026-07-23")
+        )
         self.assertEqual(state["last_automatic_date"], "2026-07-23")
         self.assertEqual(load_state(self.paths)["schema_version"], 1)
 
@@ -65,7 +73,9 @@ class ConfigStateTests(unittest.TestCase):
         now = datetime(2026, 7, 23, 9, 0, tzinfo=ZoneInfo("Europe/Istanbul"))
         self.assertEqual(next_run(config, now).date().isoformat(), "2026-07-24")
         self.assertTrue(catch_up_due(self.paths, config, now))
-        update_state(self.paths, lambda state: state.__setitem__("last_automatic_date", "2026-07-23"))
+        update_state(
+            self.paths, lambda state: state.__setitem__("last_automatic_date", "2026-07-23")
+        )
         self.assertFalse(catch_up_due(self.paths, config, now))
 
     def test_atomic_json_replaces_complete_document(self) -> None:

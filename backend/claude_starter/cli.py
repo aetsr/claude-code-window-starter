@@ -6,13 +6,14 @@ import os
 import platform
 import plistlib
 import sys
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from . import __version__
 from .claude import run_claude
-from .config import DEFAULT_CONFIG, load_config, save_config, set_config_value
+from .config import load_config, save_config, set_config_value
 from .deployment import ReleaseManager
 from .errors import AppError, ErrorCode
 from .health import diagnose, health_report
@@ -25,7 +26,9 @@ from .telegram_api import TelegramAPI, telegram_token
 from .telegram_bot import TelegramBot, notify
 
 
-def envelope(ok: bool, status: str, data: Any = None, error: AppError | None = None) -> dict[str, Any]:
+def envelope(
+    ok: bool, status: str, data: Any = None, error: AppError | None = None
+) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "ok": ok,
@@ -54,23 +57,32 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--manual", action="store_true")
     mode.add_argument("--automatic", action="store_true")
     mode.add_argument("--dry-run", action="store_true")
-    run_parser.add_argument("--trigger", choices=["server_cli", "macos_ui", "telegram", "automatic", "catch_up"])
+    run_parser.add_argument(
+        "--trigger", choices=["server_cli", "macos_ui", "telegram", "automatic", "catch_up"]
+    )
 
     config_parser = sub.add_parser("config")
     config_sub = config_parser.add_subparsers(dest="config_action", required=True)
     config_sub.add_parser("init")
     config_sub.add_parser("get")
+    config_sub.add_parser("validate")
     config_sub.add_parser("patch-stdin")
     set_parser = config_sub.add_parser("set")
     set_parser.add_argument("key")
     set_parser.add_argument("value", help="JSON value")
+
+    credential_parser = sub.add_parser("credential")
+    credential_sub = credential_parser.add_subparsers(dest="credential_action", required=True)
+    credential_store = credential_sub.add_parser("store")
+    credential_store.add_argument("name", choices=["claude_oauth_token", "telegram_token"])
 
     schedule = sub.add_parser("schedule")
     schedule.add_argument("--apply-systemd", action="store_true")
     schedule.add_argument("--apply-launchd", action="store_true")
 
     sub.add_parser("telegram-bot")
-    sub.add_parser("telegram-test")
+    telegram_test = sub.add_parser("telegram-test")
+    telegram_test.add_argument("--no-message", action="store_true")
 
     update = sub.add_parser("update")
     action = update.add_mutually_exclusive_group(required=True)
@@ -126,8 +138,7 @@ def _server_facts() -> dict[str, Any]:
             continue
         process = subprocess.run(
             argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             timeout=10,
             check=False,
@@ -174,6 +185,12 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         return "healthy", data
     if command == "run":
         config = load_config(paths, create=True)
+        if args.automatic and not config["enabled"]:
+            return "disabled", {
+                "trigger": args.trigger or "automatic",
+                "real_request_sent": False,
+                "reason": "automation_disabled",
+            }
         if args.dry_run:
             trigger = args.trigger or "server_cli"
             dry = True
@@ -181,17 +198,43 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             trigger = args.trigger or ("catch_up" if catch_up_due(paths, config) else "automatic")
             dry = False
         else:
-            trigger = args.trigger or ("macos_ui" if config["execution_mode"] == "this_mac" else "server_cli")
+            trigger = args.trigger or (
+                "macos_ui" if config["execution_mode"] == "this_mac" else "server_cli"
+            )
             dry = False
         started = datetime.now(timezone.utc).isoformat()
         try:
             result = run_claude(paths, config, trigger=trigger, dry_run=dry)
             if not dry and config["telegram"]["enabled"] and config["telegram"]["notify_success"]:
-                notify(paths, f"Claude request succeeded.\nModel: {result['selected_model']}\n{result['usage_window_verification']['message']}")
+                success_message = (
+                    "Claude request succeeded.\n"
+                    f"Model: {result['selected_model']}\n"
+                    f"{result['usage_window_verification']['message']}"
+                )
+                notify(
+                    paths,
+                    success_message,
+                )
             rotate_logs(paths, config["log_retention_days"])
             return "dry_run" if dry else "success", result
         except AppError as exc:
-            log_event(paths, {"start_time": started, "end_time": datetime.now(timezone.utc).isoformat(), "trigger_source": trigger, "status": "failed", "error_code": exc.code.value, "sanitized_error": exc.message})
+            if args.automatic and exc.code == ErrorCode.ALREADY_RAN_TODAY:
+                return "skipped", {
+                    "trigger": trigger,
+                    "real_request_sent": False,
+                    "reason": ErrorCode.ALREADY_RAN_TODAY.value,
+                }
+            log_event(
+                paths,
+                {
+                    "start_time": started,
+                    "end_time": datetime.now(timezone.utc).isoformat(),
+                    "trigger_source": trigger,
+                    "status": "failed",
+                    "error_code": exc.code.value,
+                    "sanitized_error": exc.message,
+                },
+            )
             if config["telegram"]["enabled"] and config["telegram"]["notify_failure"]:
                 try:
                     notify(paths, f"Claude request failed: {exc.code.value} — {exc.message}")
@@ -203,21 +246,35 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             config = load_config(paths, create=True)
         elif args.config_action == "get":
             config = load_config(paths, create=True)
+        elif args.config_action == "validate":
+            config = load_config(paths, create=False)
         elif args.config_action == "patch-stdin":
             try:
                 patch = json.load(sys.stdin)
             except json.JSONDecodeError as exc:
-                raise AppError(ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object") from exc
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object"
+                ) from exc
             if not isinstance(patch, dict):
                 raise AppError(ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object")
             config = load_config(paths, create=True)
             allowed = {
-                "enabled", "schedule_time", "timezone", "model", "prompt", "timeout_seconds",
-                "allow_catch_up", "prevent_duplicate_daily_run", "telegram", "deployment",
+                "enabled",
+                "schedule_time",
+                "timezone",
+                "model",
+                "prompt",
+                "timeout_seconds",
+                "allow_catch_up",
+                "prevent_duplicate_daily_run",
+                "telegram",
+                "deployment",
             }
             unknown = set(patch) - allowed
             if unknown:
-                raise AppError(ErrorCode.CONFIG_INVALID, f"Unsupported config fields: {sorted(unknown)}")
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, f"Unsupported config fields: {sorted(unknown)}"
+                )
             config = _deep_patch(config, patch)
             save_config(paths, config)
         else:
@@ -227,6 +284,17 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 value = args.value
             config = set_config_value(paths, args.key, value)
         return "success", config
+    if command == "credential":
+        if args.credential_action != "store":
+            raise AppError(ErrorCode.CONFIG_INVALID, "Unsupported credential action")
+        secret = sys.stdin.read(8193)
+        if len(secret) > 8192:
+            raise AppError(ErrorCode.CONFIG_INVALID, "Credential input is too large")
+        secret = secret.strip()
+        if not secret or "\x00" in secret or "\n" in secret or "\r" in secret:
+            raise AppError(ErrorCode.CONFIG_INVALID, "Credential must be one non-empty line")
+        atomic_write_text(paths.secrets_dir / args.name, secret, mode=0o600)
+        return "success", {"name": args.name, "configured": True}
     if command == "schedule":
         config = load_config(paths, create=True)
         path = _write_systemd_schedule(paths, config) if args.apply_systemd else None
@@ -244,9 +312,13 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         identity = api.get_me()
         config = load_config(paths, create=True)["telegram"]
         target = config.get("notification_channel_id") or config.get("notification_chat_id")
-        if type(target) is int:
+        if type(target) is int and not args.no_message:
             api.send_message(target, "Claude Window Starter Telegram test succeeded.")
-        return "success", {"bot_id": identity.get("id"), "username": identity.get("username"), "message_sent": type(target) is int}
+        return "success", {
+            "bot_id": identity.get("id"),
+            "username": identity.get("username"),
+            "message_sent": type(target) is int and not args.no_message,
+        }
     if command == "update":
         manager = ReleaseManager(paths)
         if args.apply:
@@ -271,8 +343,15 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             if not deployment["auto_update_enabled"]:
                 return "disabled", {"update_check_performed": False}
             result = manager.check()
-            if result["update_available"] and config["telegram"]["enabled"] and config["telegram"]["notify_updates"]:
-                notify(paths, f"Git update available: {result['short_commit_sha']} on {result['branch']}")
+            if (
+                result["update_available"]
+                and config["telegram"]["enabled"]
+                and config["telegram"]["notify_updates"]
+            ):
+                notify(
+                    paths,
+                    f"Git update available: {result['short_commit_sha']} on {result['branch']}",
+                )
             if result["update_available"] and deployment["auto_apply_updates"]:
                 return "success", manager.apply()
             return "success", result
@@ -281,7 +360,9 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         return "success", ReleaseManager(paths).list_releases()[: max(1, min(args.limit, 100))]
     if command == "rollback":
         if not args.yes:
-            raise AppError(ErrorCode.CONFIG_INVALID, "Rollback requires --yes after explicit confirmation")
+            raise AppError(
+                ErrorCode.CONFIG_INVALID, "Rollback requires --yes after explicit confirmation"
+            )
         return "success", ReleaseManager(paths).rollback(args.release)
     if command == "logs":
         from .logging_utils import tail_sanitized
@@ -306,11 +387,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         status, data = execute(args, paths)
         result = envelope(True, status, data)
-        print(json.dumps(result, ensure_ascii=False, indent=2, default=str) if json_output else _human(result))
+        print(
+            json.dumps(result, ensure_ascii=False, indent=2, default=str)
+            if json_output
+            else _human(result)
+        )
         return 0
     except AppError as exc:
         result = envelope(False, "error", error=exc)
-        print(json.dumps(result, ensure_ascii=False, indent=2) if json_output else f"{exc.code.value}: {exc.message}", file=sys.stderr)
+        print(
+            json.dumps(result, ensure_ascii=False, indent=2)
+            if json_output
+            else f"{exc.code.value}: {exc.message}",
+            file=sys.stderr,
+        )
         return _exit_code(exc.code)
     except KeyboardInterrupt:
         return 130
@@ -335,13 +425,34 @@ def _deep_patch(target: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]
 def _exit_code(code: ErrorCode) -> int:
     if code in {ErrorCode.CONFIG_INVALID, ErrorCode.UNSUPPORTED_ARCH, ErrorCode.UNSUPPORTED_OS}:
         return 2
-    if code in {ErrorCode.API_KEY_DETECTED, ErrorCode.CLAUDE_NOT_AUTHENTICATED, ErrorCode.CLAUDE_SESSION_EXPIRED}:
+    if code in {
+        ErrorCode.API_KEY_DETECTED,
+        ErrorCode.CLAUDE_NOT_AUTHENTICATED,
+        ErrorCode.CLAUDE_SESSION_EXPIRED,
+    }:
         return 3
     if code.value.startswith("TELEGRAM_"):
         return 6
-    if code in {ErrorCode.ROLLBACK_FAILED, ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE, ErrorCode.INVALID_RELEASE}:
+    if code in {
+        ErrorCode.ROLLBACK_FAILED,
+        ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE,
+        ErrorCode.INVALID_RELEASE,
+    }:
         return 8
-    if code.value.startswith(("GIT_", "UPDATE_", "DEPLOYMENT_", "RELEASE_", "HEALTH_", "SYMLINK_", "SERVICE_", "PRE_DEPLOY", "DEPENDENCY_", "UNTRUSTED_")):
+    if code.value.startswith(
+        (
+            "GIT_",
+            "UPDATE_",
+            "DEPLOYMENT_",
+            "RELEASE_",
+            "HEALTH_",
+            "SYMLINK_",
+            "SERVICE_",
+            "PRE_DEPLOY",
+            "DEPENDENCY_",
+            "UNTRUSTED_",
+        )
+    ):
         return 7
     return 4
 
@@ -365,8 +476,7 @@ def _service_action(target: str, action: str) -> dict[str, Any]:
         argv.extend(["--property=ActiveState,SubState"])
     process = subprocess.run(
         argv,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         timeout=20,
         check=False,
@@ -381,7 +491,11 @@ def _write_launchd_schedule(config: dict[str, Any]) -> Path:
     import subprocess
 
     override = os.environ.get("CLAUDE_STARTER_LAUNCHD_PLIST")
-    path = Path(override) if override else Path.home() / "Library/LaunchAgents/com.openai.claude-window-starter.plist"
+    path = (
+        Path(override)
+        if override
+        else Path.home() / "Library/LaunchAgents/com.openai.claude-window-starter.plist"
+    )
     if not path.is_file():
         raise AppError(ErrorCode.LAUNCHD_FAILED, "LaunchAgent is not installed")
     try:

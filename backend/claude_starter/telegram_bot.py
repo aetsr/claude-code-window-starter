@@ -5,7 +5,7 @@ import secrets
 import shutil
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from .claude import WINDOW_UNVERIFIED
@@ -63,7 +63,9 @@ class TelegramBot:
         update_state(self.paths, store)
         return True
 
-    def _confirmation(self, user_id: int, chat_id: int, action: str, value: str = "") -> dict[str, Any]:
+    def _confirmation(
+        self, user_id: int, chat_id: int, action: str, value: str = ""
+    ) -> dict[str, Any]:
         nonce = secrets.token_urlsafe(12)
         expiry = time.time() + int(self.telegram["confirmation_ttl_seconds"])
 
@@ -79,10 +81,12 @@ class TelegramBot:
 
         update_state(self.paths, store)
         return {
-            "inline_keyboard": [[
-                {"text": "Confirm", "callback_data": f"confirm:{nonce}"},
-                {"text": "Cancel", "callback_data": f"cancel:{nonce}"},
-            ]]
+            "inline_keyboard": [
+                [
+                    {"text": "Confirm", "callback_data": f"confirm:{nonce}"},
+                    {"text": "Cancel", "callback_data": f"cancel:{nonce}"},
+                ]
+            ]
         }
 
     def handle_update(self, update: dict[str, Any]) -> None:
@@ -101,7 +105,15 @@ class TelegramBot:
         chat_id = int(chat.get("id", 0))
         chat_type = str(chat.get("type", ""))
         if not self.authorized(user_id, chat_id, chat_type):
-            log_event(self.paths, {"status": "unauthorized", "error_code": ErrorCode.TELEGRAM_UNAUTHORIZED.value, "user_id": user_id, "chat_id": chat_id})
+            log_event(
+                self.paths,
+                {
+                    "status": "unauthorized",
+                    "error_code": ErrorCode.TELEGRAM_UNAUTHORIZED.value,
+                    "user_id": user_id,
+                    "chat_id": chat_id,
+                },
+            )
             self.api.send_message(chat_id, "Unauthorized")
             return
         if not self._rate_allowed(user_id):
@@ -127,17 +139,21 @@ class TelegramBot:
             return HELP, None
         if command == "/status":
             health = health_report(self.paths)
-            return _pretty({
-                "enabled": self.config["enabled"],
-                "schedule": f"{self.config['schedule_time']} {self.config['timezone']}",
-                "next": next_run(self.config).isoformat(),
-                "last_run": state.get("last_run"),
-                "last_deployment": state.get("last_deployment"),
-                "health": health,
-                "window_note": WINDOW_UNVERIFIED,
-            }), None
+            return _pretty(
+                {
+                    "enabled": self.config["enabled"],
+                    "schedule": f"{self.config['schedule_time']} {self.config['timezone']}",
+                    "next": next_run(self.config).isoformat(),
+                    "last_run": state.get("last_run"),
+                    "last_deployment": state.get("last_deployment"),
+                    "health": health,
+                    "window_note": WINDOW_UNVERIFIED,
+                }
+            ), None
         if command == "/run":
-            return "Run a real Claude subscription request?", self._confirmation(user_id, chat_id, "run")
+            return "Run a real Claude subscription request?", self._confirmation(
+                user_id, chat_id, "run"
+            )
         if command == "/dryrun":
             _start_unit("claude-window-starter-run@dry-run.service")
             return "Dry-run started; no Claude request will be sent.", None
@@ -181,7 +197,9 @@ class TelegramBot:
             return str(self.config["model"]), None
         if command == "/setmodel":
             if argument not in {"auto", "haiku", "sonnet", "opus"}:
-                raise AppError(ErrorCode.CONFIG_INVALID, "Model must be auto, haiku, sonnet, or opus")
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, "Model must be auto, haiku, sonnet, or opus"
+                )
             self.config["model"] = argument
             save_config(self.paths, self.config)
             return f"Model set to {argument}.", None
@@ -190,7 +208,9 @@ class TelegramBot:
         if command == "/setprompt":
             if not argument or len(argument) > int(self.telegram["max_prompt_length"]):
                 raise AppError(ErrorCode.CONFIG_INVALID, "Prompt is empty or too long")
-            return "Replace the configured prompt?", self._confirmation(user_id, chat_id, "setprompt", argument)
+            return "Replace the configured prompt?", self._confirmation(
+                user_id, chat_id, "setprompt", argument
+            )
         if command == "/timer":
             return _systemctl_status("claude-window-starter-run.timer"), None
         if command == "/restarttimer":
@@ -204,14 +224,18 @@ class TelegramBot:
         if command == "/checkupdate":
             return _pretty(ReleaseManager(self.paths).check()), None
         if command == "/update":
-            return "Apply the configured origin/main update?", self._confirmation(user_id, chat_id, "update")
+            return "Apply the configured origin/main update?", self._confirmation(
+                user_id, chat_id, "update"
+            )
         if command == "/updatestatus":
             return _pretty(state.get("last_deployment")), None
         if command == "/releases":
             releases = ReleaseManager(self.paths).list_releases()
             return _pretty(releases[:10]), None
         if command == "/rollback":
-            return "Rollback to the previous healthy local release?", self._confirmation(user_id, chat_id, "rollback")
+            return "Rollback to the previous healthy local release?", self._confirmation(
+                user_id, chat_id, "rollback"
+            )
         raise AppError(ErrorCode.CONFIG_INVALID, "Unknown command; use /help")
 
     def _handle_callback(self, callback: dict[str, Any]) -> None:
@@ -219,7 +243,11 @@ class TelegramBot:
         message = callback.get("message")
         data = callback.get("data")
         callback_id = str(callback.get("id", ""))
-        if not isinstance(sender, dict) or not isinstance(message, dict) or not isinstance(data, str):
+        if (
+            not isinstance(sender, dict)
+            or not isinstance(message, dict)
+            or not isinstance(data, str)
+        ):
             return
         chat = message.get("chat")
         if not isinstance(chat, dict):
@@ -241,7 +269,10 @@ class TelegramBot:
             and confirmation.get("chat_id") == chat_id
             and float(confirmation.get("expires", 0)) >= time.time()
         )
-        update_state(self.paths, lambda current: current.setdefault("telegram_confirmations", {}).pop(nonce, None))
+        update_state(
+            self.paths,
+            lambda current: current.setdefault("telegram_confirmations", {}).pop(nonce, None),
+        )
         if not valid or decision not in {"confirm", "cancel"}:
             self.api.answer_callback(callback_id, "Expired")
             return
@@ -274,12 +305,22 @@ class TelegramBot:
                     for update in updates:
                         update_id = int(update.get("update_id", offset))
                         self.handle_update(update)
-                        def save_offset(current: dict[str, Any], value: int = update_id + 1) -> None:
+
+                        def save_offset(
+                            current: dict[str, Any], value: int = update_id + 1
+                        ) -> None:
                             current["telegram_offset"] = value
 
                         update_state(self.paths, save_offset)
                 except AppError as exc:
-                    log_event(self.paths, {"status": "telegram_error", "error_code": exc.code.value, "sanitized_error": exc.message})
+                    log_event(
+                        self.paths,
+                        {
+                            "status": "telegram_error",
+                            "error_code": exc.code.value,
+                            "sanitized_error": exc.message,
+                        },
+                    )
                     time.sleep(5)
 
 
@@ -333,7 +374,13 @@ def _systemctl_status(unit: str) -> str:
     if not systemctl:
         return "systemd unavailable"
     process = subprocess.run(
-        [systemctl, "--user", "show", unit, "--property=ActiveState,SubState,NextElapseUSecRealtime"],
+        [
+            systemctl,
+            "--user",
+            "show",
+            unit,
+            "--property=ActiveState,SubState,NextElapseUSecRealtime",
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,

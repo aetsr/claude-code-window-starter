@@ -12,6 +12,8 @@ APP_BASE="$SERVICE_HOME/.local/share/claude-window-starter"
 SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_SHA="${1:-}"
 
+"$SOURCE_ROOT/scripts/diagnose-server.sh"
+
 arch="$(uname -m)"
 case "$arch" in
   aarch64|arm64|x86_64) ;;
@@ -53,9 +55,10 @@ python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1
 }
 
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
-  useradd --create-home --home-dir "$SERVICE_HOME" --shell /bin/bash "$SERVICE_USER"
-  passwd --lock "$SERVICE_USER" >/dev/null
+  useradd --create-home --home-dir "$SERVICE_HOME" --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
+usermod --shell /usr/sbin/nologin "$SERVICE_USER"
+passwd --lock "$SERVICE_USER" >/dev/null
 
 uid="$(id -u "$SERVICE_USER")"
 loginctl enable-linger "$SERVICE_USER"
@@ -63,6 +66,11 @@ install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" \
   "$APP_BASE/releases" "$APP_BASE/shared/config" "$APP_BASE/shared/secrets" \
   "$APP_BASE/shared/state" "$APP_BASE/shared/logs" "$APP_BASE/shared/runtime" \
   "$SERVICE_HOME/.config/systemd/user"
+
+if [[ ! -f "$APP_BASE/shared/config/config.json" ]]; then
+  install -m 0600 -o "$SERVICE_USER" -g "$SERVICE_USER" \
+    "$SOURCE_ROOT/config/config.example.json" "$APP_BASE/shared/config/config.json"
+fi
 
 if git -C "$SOURCE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   sha="$(git -C "$SOURCE_ROOT" rev-parse HEAD)"
@@ -87,18 +95,24 @@ if [[ ! -d "$release" ]]; then
   runuser -u "$SERVICE_USER" -- "$release/.venv/bin/python" -c \
     'import pathlib,site,sys; pathlib.Path(site.getsitepackages()[0], "claude_window_starter.pth").write_text(sys.argv[1] + "\n")' \
     "$release/backend"
+  runuser -u "$SERVICE_USER" -- env PYTHONPATH="$release/backend" \
+    "$release/.venv/bin/python" -m unittest discover -s "$release/tests" -p 'test_*.py'
+  runuser -u "$SERVICE_USER" -- env CLAUDE_STARTER_HOME="$APP_BASE" \
+    "$release/.venv/bin/python" -m claude_starter --home "$APP_BASE" --json health --no-services >/dev/null
   runuser -u "$SERVICE_USER" -- "$release/.venv/bin/python" -c \
-    'import json,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"schema_version":1,"application_version":"0.1.0","commit_sha":sys.argv[2],"short_commit_sha":sys.argv[2][:12],"branch":"main","build_time":None,"deploy_time":None,"python_version":sys.version.split()[0],"dependency_lock_hash":None,"deploy_result":"initial","health_check_result":"passed","healthy":True},indent=2)+"\n")' \
-    "$release/release.json" "$sha"
+    'import hashlib,json,pathlib,platform,sys; lock=pathlib.Path(sys.argv[3]); pathlib.Path(sys.argv[1]).write_text(json.dumps({"schema_version":1,"application_version":"1.0.0","commit_sha":sys.argv[2],"short_commit_sha":sys.argv[2][:12],"branch":"main","build_time":None,"deploy_time":None,"python_version":platform.python_version(),"dependency_lock_hash":hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else None,"deploy_result":"initial","health_check_result":"passed","healthy":True},indent=2)+"\n")' \
+    "$release/release.json" "$sha" "$release/requirements-runtime.lock"
 fi
 
-ln -sfn "$release" "$APP_BASE/.current-new"
+if [[ -L "$APP_BASE/current" ]]; then
+  old_current="$(readlink -f "$APP_BASE/current")"
+  ln -s "$old_current" "$APP_BASE/.previous-new"
+  mv -Tf "$APP_BASE/.previous-new" "$APP_BASE/previous"
+fi
+ln -s "$release" "$APP_BASE/.current-new"
 mv -Tf "$APP_BASE/.current-new" "$APP_BASE/current"
 chown -h "$SERVICE_USER:$SERVICE_USER" "$APP_BASE/current"
 
-if [[ ! -f "$APP_BASE/shared/config/config.json" ]]; then
-  install -m 0600 -o "$SERVICE_USER" -g "$SERVICE_USER" "$SOURCE_ROOT/config/config.example.json" "$APP_BASE/shared/config/config.json"
-fi
 for secret in claude_oauth_token telegram_token; do
   if [[ ! -e "$APP_BASE/shared/secrets/$secret" ]]; then
     install -m 0600 -o "$SERVICE_USER" -g "$SERVICE_USER" /dev/null "$APP_BASE/shared/secrets/$secret"
@@ -119,5 +133,9 @@ runuser -u "$SERVICE_USER" -- env \
 run_user_systemctl daemon-reload
 run_user_systemctl enable --now claude-window-starter-run.timer
 
+runuser -u "$SERVICE_USER" -- env CLAUDE_STARTER_HOME="$APP_BASE" \
+  "$release/scripts/configure-git-deploy-key.sh"
+
 echo "Installed safely at $APP_BASE"
 echo "Automation remains disabled until config and OAuth credentials are supplied."
+echo "Add the public deploy key printed above to the private GitHub repository without write access."

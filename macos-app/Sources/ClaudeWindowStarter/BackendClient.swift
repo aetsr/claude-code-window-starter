@@ -40,6 +40,17 @@ struct BackendClient {
         guard ["claude_oauth_token", "telegram_token"].contains(name) else {
             throw ProcessRunnerError.launch("Unsupported credential")
         }
+        if settings.target == .thisMac {
+            let result = try await command(
+                settings: settings,
+                arguments: ["credential", "store", name],
+                stdin: Data((secret + "\n").utf8)
+            )
+            guard result.ok else {
+                throw ProcessRunnerError.invalidOutput
+            }
+            return
+        }
         let command = "sudo -n -u claude-starter env CLAUDE_STARTER_HOME=\(serviceHome) \(serviceHome)/current/scripts/store-credential.sh \(name)"
         let result = try await ssh(settings: settings, remoteCommand: command, stdin: Data((secret + "\n").utf8))
         guard result.status == 0 else {
@@ -107,10 +118,22 @@ struct BackendClient {
         let home = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "ClaudeWindowStarter")
         let python = home.appending(path: "current/.venv/bin/python")
+        let userHome = FileManager.default.homeDirectoryForCurrentUser.path
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [
+            "\(userHome)/.local/bin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ].joined(separator: ":")
         return try await runner.run(
             executable: python,
             arguments: ["-m", "claude_starter", "--home", home.path, "--json"] + arguments,
-            stdin: stdin
+            stdin: stdin,
+            environment: environment
         )
     }
 
@@ -133,6 +156,9 @@ struct BackendClient {
             "-i", settings.keyPath,
             "-o", "BatchMode=yes",
             "-o", "IdentitiesOnly=yes",
+            "-o", "ConnectTimeout=15",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=2",
             "-o", "StrictHostKeyChecking=yes",
             "-o", "UserKnownHostsFile=\(settings.knownHostsPath)",
             "\(settings.user)@\(settings.host)",

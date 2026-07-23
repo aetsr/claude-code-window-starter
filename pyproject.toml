@@ -1,12 +1,40 @@
+[build-system]
+requires = ["setuptools==75.8.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "claude-window-starter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Secure scheduled Claude Code subscription request runner"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
+license = { text = "Proprietary" }
+authors = [{ name = "Claude Window Starter maintainers" }]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
 
 [project.scripts]
 claude-window-starter = "claude_starter.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "backend" }
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.setuptools.package-data]
+claude_starter = ["py.typed"]
 
 [tool.ruff]
 target-version = "py310"
@@ -16,6 +44,9 @@ src = ["backend"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "S", "UP", "B"]
 ignore = ["S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.10"

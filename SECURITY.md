@@ -2,22 +2,31 @@
 
 ## Credentials
 
-`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, custom gateways, cloud providers, and `apiKeyHelper` stop real execution. Oracle accepts only the subscription OAuth token produced by `claude setup-token`. Secrets are loaded from systemd credentials; a 0600 file is the compatibility fallback. Telegram/OAuth tokens, Claude auth, SSH private keys, deploy keys, cookies, and authorization headers are never logged or returned by status.
+Never paste a token, SSH private key, Git credential, cookie, or raw environment dump into a chat, issue, log, or Git commit.
 
-The OAuth setup token is long-lived but finite; record its creation date outside the repository and renew it before its one-year validity ends. Never commit `shared/`, `.env`, credentials, private keys, or Claude’s auth directory.
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, custom gateways, Bedrock, Vertex, Foundry, and `apiKeyHelper` stop real execution. Oracle accepts only the subscription OAuth token produced by `claude setup-token`.
+
+- Mac secrets are written through SecureField/stdin and stored in Keychain.
+- Oracle secrets are entered through hidden stdin and stored with `LoadCredentialEncrypted` when supported, otherwise in mode-0600 files.
+- Git push uses the owner’s existing Mac credential.
+- Oracle generates its deploy private key locally; only the public key leaves the server.
+- Secrets, auth files, SSH private keys, runtime data, and local config are excluded from releases and Git.
 
 ## Process isolation
 
-Claude runs with `shell=False`, stdin prompt input, an allowlisted environment, no tools, no session persistence, no browser integration, timeout, and a dedicated runtime directory. Capability flags are derived from the target’s real `claude --help`. Dry-run cannot invoke `claude -p`.
+Claude runs with `shell=False`, prompt over stdin, an allowlisted environment, no tools, no session persistence, capability-gated flags, a timeout, and a dedicated runtime directory. Dry-run cannot invoke `claude -p`.
 
-Systemd user services run as the locked `claude-starter` account with `NoNewPrivileges`, filesystem restrictions, and no inbound listener. Telegram uses outbound HTTPS long polling only.
+Systemd services run as the password-locked, non-login `claude-starter` user with `NoNewPrivileges`, private temporary/device views, an empty capability set, strict filesystem protection, and no inbound listener.
 
-## Trust boundaries
+## Git and release trust
 
-- SSH and Git require pinned host keys; key changes stop the operation.
-- The deploy key is separate, read-only, and mode 0600.
-- Production targets exactly the configured `origin/main` commit.
-- Private GitHub CI status cannot be independently queried with only an SSH deploy key. Required checks and protected `main` are an external prerequisite and are reported as such.
-- Repository archives reject path traversal, links, and secret-like tracked paths before extraction.
+- The Mac is the authoring repository; the user performs remote creation and push.
+- Oracle accepts only a configured `git@github.com:OWNER/REPO.git` origin and branch head.
+- GitHub’s Ed25519 host key must match `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`.
+- The deploy key has no write permission.
+- Updates fetch into a bare mirror and extract a validated `git archive`; hooks, untracked files, submodules, symlinks, path traversal, and secret-like tracked content are rejected.
+- Private GitHub CI state is not claimed as machine-verified without a GitHub API credential. Protected `main` and required checks remain an external prerequisite.
 
-Report suspected credential exposure by revoking the affected token/key first, stopping services, rotating credentials, and reviewing sanitized event logs plus the private repository history.
+## Incident response
+
+Revoke an exposed token/key first, stop affected services, rotate the credential, and review sanitized JSONL logs plus private repository history. Never attach complete stderr, Telegram update payloads, Claude auth files, or shared runtime directories to a report.

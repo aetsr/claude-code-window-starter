@@ -1,9 +1,18 @@
-# macOS menu app and launchd
+# macOS application and local backend
 
-Open `macos-app/Package.swift` in Xcode or run `swift build --package-path macos-app`. The app targets macOS 13+, uses `MenuBarExtra`, Security.framework Keychain storage, and Foundation `Process`; it has no third-party framework.
+Run `scripts/install-macos.sh` from the repository. It creates a release backend under Application Support, builds an ad-hoc signed `Claude Window Starter.app`, installs it in `/Applications`, and loads the LaunchAgent. Automation stays disabled.
 
-Oracle Server is the default mode. The app executes the stable backend JSON CLI over `/usr/bin/ssh` with separate arguments and strict known_hosts checking. Scan the server ED25519 key, compare its SHA256 fingerprint through an independent Oracle console session, then explicitly trust it. A changed host key blocks every operation.
+The menu app targets macOS 13+ and has no third-party framework. Connection/configuration settings persist in `UserDefaults`; OAuth and Telegram values go to Keychain. Stored secret values are never loaded back into visible fields.
 
-This Mac mode uses the same Python backend installed by `scripts/install-macos.sh`. The LaunchAgent is disabled logically because config starts with `enabled=false`. Do not enable both Oracle and Mac timers unless two automatic daily requests are intended.
+Oracle Server is the default target. Remote commands use `/usr/bin/ssh` with separate arguments, batch mode, a specific identity path, strict host checking, and an app-owned `known_hosts` file. Scan the Oracle Ed25519 key, independently compare its SHA256 fingerprint in Oracle Console, and only then press **Trust verified key**. A later key change stops SSH.
 
-Secure fields may temporarily store OAuth/Telegram values in the macOS Keychain and transfer them over verified SSH stdin. The app never displays stored values or reads SSH private-key contents.
+This Mac mode calls the same installed JSON backend locally. The LaunchAgent PATH includes the standard native Claude locations, but its config remains disabled until explicitly enabled. Do not enable both Oracle and Mac daily schedules unless two automatic requests are intended.
+
+Build without installing:
+
+```sh
+scripts/build-macos-app.sh
+codesign --verify --deep --strict "dist/Claude Window Starter.app"
+```
+
+The local bundle is intentionally ad-hoc signed for this Mac. App Store distribution and notarization are outside this private deployment.

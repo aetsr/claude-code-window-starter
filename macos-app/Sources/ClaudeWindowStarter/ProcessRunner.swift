@@ -21,11 +21,17 @@ struct ProcessResult: Sendable {
 }
 
 struct ProcessRunner {
-    func run(executable: URL, arguments: [String], stdin: Data? = nil) async throws -> ProcessResult {
+    func run(
+        executable: URL,
+        arguments: [String],
+        stdin: Data? = nil,
+        environment: [String: String]? = nil
+    ) async throws -> ProcessResult {
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = executable
             process.arguments = arguments
+            process.environment = environment
             let output = Pipe()
             let error = Pipe()
             process.standardOutput = output
@@ -34,16 +40,28 @@ struct ProcessRunner {
                 let input = Pipe()
                 process.standardInput = input
                 try process.run()
+                async let stdout = output.fileHandleForReading.readDataToEndOfFile()
+                async let stderr = error.fileHandleForReading.readDataToEndOfFile()
                 try input.fileHandleForWriting.write(contentsOf: stdin)
                 try input.fileHandleForWriting.close()
+                process.waitUntilExit()
+                return await ProcessResult(
+                    stdout: stdout,
+                    stderr: stderr,
+                    status: process.terminationStatus
+                )
             } else {
                 process.standardInput = FileHandle.nullDevice
                 try process.run()
+                async let stdout = output.fileHandleForReading.readDataToEndOfFile()
+                async let stderr = error.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                return await ProcessResult(
+                    stdout: stdout,
+                    stderr: stderr,
+                    status: process.terminationStatus
+                )
             }
-            process.waitUntilExit()
-            let stdout = output.fileHandleForReading.readDataToEndOfFile()
-            let stderr = error.fileHandleForReading.readDataToEndOfFile()
-            return ProcessResult(stdout: stdout, stderr: stderr, status: process.terminationStatus)
         }.value
     }
 }

@@ -17,10 +17,10 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PYTHONPATH</key>
-    <string>@@BACKEND@@</string>
     <key>CLAUDE_STARTER_HOME</key>
     <string>@@HOME@@</string>
+    <key>PATH</key>
+    <string>@@PATH@@</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>

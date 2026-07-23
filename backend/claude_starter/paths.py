@@ -10,9 +10,13 @@ class AppPaths:
     base: Path
 
     @classmethod
-    def discover(cls, override: str | None = None) -> "AppPaths":
+    def discover(cls, override: str | None = None) -> AppPaths:
         value = override or os.environ.get("CLAUDE_STARTER_HOME")
-        base = Path(value).expanduser() if value else Path.home() / ".local/share/claude-window-starter"
+        base = (
+            Path(value).expanduser()
+            if value
+            else Path.home() / ".local/share/claude-window-starter"
+        )
         return cls(base.resolve())
 
     @property

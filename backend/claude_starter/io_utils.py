@@ -34,7 +34,9 @@ def atomic_write_bytes(path: Path, content: bytes, mode: int = 0o600) -> None:
             temp_path.unlink(missing_ok=True)
         except OSError:
             pass
-        raise AppError(ErrorCode.STATE_WRITE_FAILED, f"Atomic write failed for {path.name}") from exc
+        raise AppError(
+            ErrorCode.STATE_WRITE_FAILED, f"Atomic write failed for {path.name}"
+        ) from exc
 
 
 def atomic_write_json(path: Path, value: Any, mode: int = 0o600) -> None:

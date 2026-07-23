@@ -11,7 +11,11 @@ from claude_starter.paths import AppPaths
 class LoggingTests(unittest.TestCase):
     def test_known_secret_patterns_are_redacted(self) -> None:
         value = sanitize_text(
-            "token=" + "123456789:" + "abcdefghijklmnopqrstuvwxyzABCDE " + "sk-ant-" + "abcdefghijklmnop"
+            "token="
+            + "123456789:"
+            + "abcdefghijklmnopqrstuvwxyzABCDE "
+            + "sk-ant-"
+            + "abcdefghijklmnop"
         )
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz", value)
         self.assertNotIn("sk-ant-", value)

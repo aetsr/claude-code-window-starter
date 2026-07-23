@@ -49,13 +49,14 @@ class ClaudeCapabilities:
         return value
 
 
-def _run_small(argv: list[str], *, timeout: int = 10, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run_small(
+    argv: list[str], *, timeout: int = 10, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             argv,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
@@ -100,7 +101,9 @@ def discover_claude() -> ClaudeCapabilities:
     executable = shutil.which("claude")
     architecture = platform.machine().lower()
     if executable is None:
-        return ClaudeCapabilities(None, None, architecture, "", "not_found", None, prohibited_credentials())
+        return ClaudeCapabilities(
+            None, None, architecture, "", "not_found", None, prohibited_credentials()
+        )
     version_process = _run_small([executable, "--version"])
     help_process = _run_small([executable, "--help"])
     auth_process = _run_small([executable, "auth", "status", "--json"])
@@ -120,7 +123,9 @@ def discover_claude() -> ClaudeCapabilities:
         auth_status = "not_authenticated"
     return ClaudeCapabilities(
         executable=executable,
-        version=sanitize_text(version_process.stdout.strip() or version_process.stderr.strip(), 200),
+        version=sanitize_text(
+            version_process.stdout.strip() or version_process.stderr.strip(), 200
+        ),
         architecture=architecture,
         help_text=help_process.stdout,
         auth_status=auth_status,
@@ -162,7 +167,9 @@ def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str
     if config.get("execution_mode") == "oracle":
         token_path = _credential_path(paths, "claude_oauth_token")
         if token_path is None:
-            raise AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED, "OAuth systemd credential is missing")
+            raise AppError(
+                ErrorCode.CLAUDE_NOT_AUTHENTICATED, "OAuth systemd credential is missing"
+            )
         token = token_path.read_text(encoding="utf-8").strip()
         if not token:
             raise AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED, "OAuth systemd credential is empty")
@@ -172,7 +179,9 @@ def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str
 
 def _classify_failure(stderr: str, stdout: str, returncode: int) -> AppError:
     text = f"{stderr}\n{stdout}".lower()
-    if "model" in text and any(word in text for word in ("unavailable", "not available", "invalid model")):
+    if "model" in text and any(
+        word in text for word in ("unavailable", "not available", "invalid model")
+    ):
         return AppError(ErrorCode.MODEL_UNAVAILABLE, "Requested Claude model is unavailable")
     if any(word in text for word in ("rate limit", "usage limit", "limit reached")):
         return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
@@ -203,6 +212,10 @@ def _build_args(capabilities: ClaudeCapabilities, model: str | None) -> list[str
         argv.extend(["--permission-mode", "dontAsk"])
     if "--tools" in help_text:
         argv.extend(["--tools", ""])
+    if "--setting-sources" in help_text:
+        argv.extend(["--setting-sources", ""])
+    if "--mcp-config" in help_text and "--strict-mcp-config" in help_text:
+        argv.extend(["--mcp-config", "{}", "--strict-mcp-config"])
     return argv
 
 
@@ -255,7 +268,9 @@ def _invoke_once(
     }
 
 
-def run_claude(paths: AppPaths, config: dict[str, Any], *, trigger: str, dry_run: bool) -> dict[str, Any]:
+def run_claude(
+    paths: AppPaths, config: dict[str, Any], *, trigger: str, dry_run: bool
+) -> dict[str, Any]:
     paths.ensure()
     capabilities = discover_claude()
     if capabilities.executable is None:
@@ -296,7 +311,9 @@ def run_claude(paths: AppPaths, config: dict[str, Any], *, trigger: str, dry_run
                 if cached == "default":
                     cached = None
             candidates = []
-            ordered_candidates: tuple[str | None, ...] = ((cached, "haiku", None) if cached is not None else ("haiku", None))
+            ordered_candidates: tuple[str | None, ...] = (
+                (cached, "haiku", None) if cached is not None else ("haiku", None)
+            )
             for candidate in ordered_candidates:
                 if candidate not in candidates:
                     candidates.append(candidate)
@@ -337,10 +354,16 @@ def run_claude(paths: AppPaths, config: dict[str, Any], *, trigger: str, dry_run
                 current["last_automatic_date"] = now.date().isoformat()
             if selected == "auto":
                 current["model_cache"] = {
-                    "model": result["selected_model"] if result["selected_model"] != "default" else "default",
+                    "model": result["selected_model"]
+                    if result["selected_model"] != "default"
+                    else "default",
                     "cli_version": capabilities.version,
                 }
 
         update_state(paths, save_run)
         log_event(paths, record)
-        return {**result, "real_request_sent": True, "usage_window_verification": record["usage_window_verification"]}
+        return {
+            **result,
+            "real_request_sent": True,
+            "usage_window_verification": record["usage_window_verification"],
+        }

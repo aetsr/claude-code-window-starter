@@ -9,24 +9,32 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from claude_starter.claude import discover_claude, run_claude
+from claude_starter.claude import _build_args, discover_claude, run_claude
 from claude_starter.config import DEFAULT_CONFIG
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
 
-FAKE = '''#!{python}
+FAKE = """#!{python}
 import json, sys, time
 if "--version" in sys.argv:
     print("2.1.test (Claude Code)")
 elif "--help" in sys.argv:
-    print("--output-format --model --no-session-persistence --no-chrome --disable-slash-commands --permission-mode dontAsk --tools")
+    print(
+        "--output-format --model --no-session-persistence --no-chrome "
+        "--disable-slash-commands --permission-mode dontAsk --tools "
+        "--setting-sources --mcp-config --strict-mcp-config"
+    )
 elif "auth" in sys.argv:
     print(json.dumps({{"authenticated": True, "method": "oauth"}}))
 elif "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "haiku":
-    print(json.dumps({{"result": "OK", "model": "claude-haiku-test", "usage": {{"input_tokens": 1}}}}))
+    print(json.dumps({{
+        "result": "OK",
+        "model": "claude-haiku-test",
+        "usage": {{"input_tokens": 1}},
+    }}))
 else:
     print(json.dumps({{"result": "OK", "model": "default-test"}}))
-'''
+"""
 
 
 class ClaudeTests(unittest.TestCase):
@@ -40,7 +48,9 @@ class ClaudeTests(unittest.TestCase):
         executable = self.bin / "claude"
         executable.write_text(FAKE.format(python=sys.executable), encoding="utf-8")
         executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
-        self.environment = mock.patch.dict(os.environ, {"PATH": f"{self.bin}:{os.environ.get('PATH', '')}"}, clear=False)
+        self.environment = mock.patch.dict(
+            os.environ, {"PATH": f"{self.bin}:{os.environ.get('PATH', '')}"}, clear=False
+        )
         self.environment.start()
 
     def tearDown(self) -> None:
@@ -61,6 +71,13 @@ class ClaudeTests(unittest.TestCase):
     def test_dry_run_never_sends_request(self) -> None:
         result = run_claude(self.paths, self.config(), trigger="server_cli", dry_run=True)
         self.assertFalse(result["real_request_sent"])
+
+    def test_invocation_isolates_tools_settings_and_mcp(self) -> None:
+        arguments = _build_args(discover_claude(), "haiku")
+        self.assertIn("--no-session-persistence", arguments)
+        self.assertIn("--tools", arguments)
+        self.assertIn("--setting-sources", arguments)
+        self.assertIn("--strict-mcp-config", arguments)
 
     def test_auto_model_uses_haiku_and_records_unverified_window(self) -> None:
         result = run_claude(self.paths, self.config(), trigger="server_cli", dry_run=False)

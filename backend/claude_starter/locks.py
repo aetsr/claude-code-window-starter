@@ -45,7 +45,7 @@ class FileLock:
             os.close(self._fd)
             self._fd = None
 
-    def __enter__(self) -> "FileLock":
+    def __enter__(self) -> FileLock:
         self.acquire()
         return self
 

@@ -9,7 +9,12 @@ case "$name" in
 esac
 
 BASE="${CLAUDE_STARTER_HOME:-$HOME/.local/share/claude-window-starter}"
-read -r secret
+if [[ -t 0 ]]; then
+  IFS= read -r -s secret
+  printf '\n' >&2
+else
+  IFS= read -r secret
+fi
 [[ -n "$secret" ]] || { echo "Credential must not be empty" >&2; exit 2; }
 mkdir -p "$BASE/shared/secrets" "$HOME/.config/systemd/user"
 
@@ -26,6 +31,8 @@ fi
 if [[ "$used_encrypted" == false ]]; then
   printf '%s' "$secret" > "$plain"
   chmod 0600 "$plain"
+else
+  rm -f "$plain"
 fi
 unset secret
 
@@ -45,6 +52,11 @@ if [[ "$used_encrypted" == true ]]; then
       printf 'LoadCredentialEncrypted=%s:%s\n' "$name" "$encrypted"
     } > "$dropin/credential.conf"
     chmod 0600 "$dropin/credential.conf"
+  done
+else
+  rm -f "$encrypted"
+  for unit in "${units[@]}"; do
+    rm -f "$HOME/.config/systemd/user/$unit.d/credential.conf"
   done
 fi
 systemctl --user daemon-reload >/dev/null 2>&1 || true
