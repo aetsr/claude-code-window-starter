@@ -46,12 +46,18 @@ python3 -c \
   'import json,pathlib,platform,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"schema_version":1,"application_version":"1.0.0","commit_sha":sys.argv[3],"short_commit_sha":sys.argv[3][:12],"branch":"main","build_time":sys.argv[2],"python_version":platform.python_version(),"healthy":True,"deploy_result":"local_install"},indent=2)+"\n")' \
   "$RELEASE/release.json" "$STAMP" "$SOURCE_SHA"
 
+atomic_link() {
+  local target="$1"
+  local link="$2"
+  local temporary="$BASE/.$(basename "$link")-$STAMP"
+  ln -s "$target" "$temporary"
+  python3 -c 'import os,sys; os.replace(sys.argv[1],sys.argv[2])' "$temporary" "$link"
+}
+
 if [[ -L "$BASE/current" ]] && current_target="$(readlink "$BASE/current")"; then
-  ln -s "$current_target" "$BASE/.previous-$STAMP"
-  mv -f "$BASE/.previous-$STAMP" "$BASE/previous"
+  atomic_link "$current_target" "$BASE/previous"
 fi
-ln -s "$RELEASE" "$BASE/.current-$STAMP"
-mv -f "$BASE/.current-$STAMP" "$BASE/current"
+atomic_link "$RELEASE" "$BASE/current"
 
 install -d -m 0755 "$(dirname "$AGENT")"
 python3 -c \
