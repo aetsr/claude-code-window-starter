@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic Claude Window Starter update check
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=60min
+Persistent=true
+Unit=claude-window-starter-update-check.service
+
+[Install]
+WantedBy=timers.target

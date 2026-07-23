@@ -1,0 +1,21 @@
+[Unit]
+Description=Claude Window Starter request (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=%h/.local/share/claude-window-starter/current
+
+[Service]
+Type=oneshot
+Environment=CLAUDE_STARTER_HOME=%h/.local/share/claude-window-starter
+Environment=PYTHONUNBUFFERED=1
+LoadCredential=claude_oauth_token:%h/.local/share/claude-window-starter/shared/secrets/claude_oauth_token
+ExecStart=%h/.local/share/claude-window-starter/current/scripts/systemd-run.sh %i
+TimeoutStartSec=15min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/claude-window-starter
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true

@@ -1,0 +1,25 @@
+[Unit]
+Description=Claude Window Starter Telegram bot
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=%h/.local/share/claude-window-starter/current
+
+[Service]
+Type=simple
+Environment=CLAUDE_STARTER_HOME=%h/.local/share/claude-window-starter
+Environment=PYTHONUNBUFFERED=1
+LoadCredential=telegram_token:%h/.local/share/claude-window-starter/shared/secrets/telegram_token
+ExecStart=%h/.local/share/claude-window-starter/current/.venv/bin/python -m claude_starter --json telegram-bot
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/claude-window-starter
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Rollback Claude Window Starter to previous healthy release
+
+[Service]
+Type=oneshot
+Environment=CLAUDE_STARTER_HOME=%h/.local/share/claude-window-starter
+ExecStart=%h/.local/share/claude-window-starter/current/.venv/bin/python -m claude_starter --json rollback --yes
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/claude-window-starter

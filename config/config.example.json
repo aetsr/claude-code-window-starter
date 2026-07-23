@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "enabled": false,
+  "execution_mode": "oracle",
+  "schedule_time": "08:00",
+  "timezone": "Europe/Istanbul",
+  "model": "auto",
+  "prompt": "Respond with OK.",
+  "timeout_seconds": 120,
+  "allow_catch_up": true,
+  "prevent_duplicate_daily_run": true,
+  "retry_failed_automatic_run": false,
+  "log_retention_days": 30,
+  "telegram": {
+    "enabled": false,
+    "allowed_user_ids": [],
+    "allowed_chat_ids": [],
+    "allowed_channel_ids": [],
+    "notification_chat_id": null,
+    "notification_channel_id": null,
+    "commands_in_private_chat_only": true,
+    "notify_success": true,
+    "notify_failure": true,
+    "notify_updates": true,
+    "command_cooldown_seconds": 3,
+    "confirmation_ttl_seconds": 60,
+    "max_prompt_length": 500
+  },
+  "deployment": {
+    "enabled": true,
+    "repository_url": "",
+    "branch": "main",
+    "auto_update_enabled": false,
+    "auto_apply_updates": false,
+    "update_check_interval_minutes": 60,
+    "retain_releases": 5,
+    "health_check_timeout_seconds": 60,
+    "rollback_on_failure": true,
+    "protected_branch_confirmed": false
+  }
+}

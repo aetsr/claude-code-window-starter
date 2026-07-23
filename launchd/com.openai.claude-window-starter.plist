@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openai.claude-window-starter</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@@PYTHON@@</string>
+    <string>-m</string>
+    <string>claude_starter</string>
+    <string>--home</string>
+    <string>@@HOME@@</string>
+    <string>--json</string>
+    <string>run</string>
+    <string>--automatic</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>@@BACKEND@@</string>
+    <key>CLAUDE_STARTER_HOME</key>
+    <string>@@HOME@@</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>@@HOME@@/shared/logs/launchd.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>@@HOME@@/shared/logs/launchd.stderr.log</string>
+</dict>
+</plist>
