@@ -38,7 +38,7 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
         },
         "disk": {"ok": disk.free >= 200 * 1024 * 1024, "free_bytes": disk.free},
         "config": {"ok": True, "schema_version": config["schema_version"]},
-        "state": {"ok": state.get("schema_version") == 2},
+        "state": {"ok": state.get("schema_version") in {2, 3}},
         "claude": {"ok": capabilities.executable is not None, **capabilities.public_dict()},
         "background": {"ok": True, **_background_status(paths)},
     }
