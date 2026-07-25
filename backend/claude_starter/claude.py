@@ -19,15 +19,6 @@ from .locks import FileLock
 from .logging_utils import log_event, sanitize_text
 from .paths import AppPaths
 from .state import load_state, update_state
-from .usage import captured_rate_limits, next_window_time, normalized_rate_limits
-
-WINDOW_UNVERIFIED = (
-    "Claude isteği başarılı; resmi rate_limits alanı alınamadığı için sonraki çalışma "
-    "başarı zamanından beş saat sonrası olarak tahmin edildi."
-)
-WINDOW_VERIFIED = (
-    "Beş saatlik pencerenin reset zamanı Claude Code rate_limits verisiyle doğrulandı."
-)
 
 PROHIBITED_ENV = {
     "ANTHROPIC_API_KEY",
@@ -209,56 +200,24 @@ def _authentication_error(
 def _classify_failure(
     stderr: str, stdout: str, returncode: int, capabilities: ClaudeCapabilities
 ) -> AppError:
-    # Check rate_limits in JSON first (most reliable source).
-    # Only classify as rate-limit if used_percentage >= 100.
-    json_used_percentage: float | None = None
-    if stdout.strip().startswith("{"):
-        try:
-            payload = json.loads(stdout)
-            if isinstance(payload, dict):
-                rate_limits = payload.get("rate_limits")
-                if isinstance(rate_limits, dict):
-                    five_hour = rate_limits.get("five_hour")
-                    if isinstance(five_hour, dict):
-                        used = five_hour.get("used_percentage")
-                        if isinstance(used, (int, float)):
-                            json_used_percentage = float(used)
-                            if json_used_percentage >= 100:
-                                return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
-        except json.JSONDecodeError:
-            pass
+    """Classify a Claude process failure into an error code.
 
+    Rate-limit detection is removed: windows are now determined from user-provided
+    anchor times, not from Claude's JSON rate_limits output.
+    """
     text = f"{stderr}\n{stdout}".lower()
+
+    # Check for model unavailability
     if "model" in text and any(
         word in text for word in ("unavailable", "not available", "invalid model")
     ):
         return AppError(ErrorCode.MODEL_UNAVAILABLE, "Requested Claude model is unavailable")
-    # String pattern matching for limit keywords.
-    # But: if JSON rate_limits confirmed used < 100, this is not a hard limit.
-    if any(
-        word in text
-        for word in (
-            "rate limit",
-            "usage limit",
-            "limit reached",
-            "session limit",
-            "weekly limit",
-            "daily limit",
-            "hit your limit",
-            "you've hit",
-            "hit the limit",
-            "usage cap",
-        )
-    ):
-        # If JSON has rate_limits with used < 100, this is informational, not an error.
-        if json_used_percentage is not None and json_used_percentage < 100:
-            # Don't treat as a hard limit error; fall through to other error types.
-            pass
-        else:
-            # Either no JSON data or JSON confirms >= 100: treat as rate limit error.
-            return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
+
+    # Check for authentication errors
     if any(word in text for word in ("not logged in", "authentication", "unauthorized", "oauth")):
         return _authentication_error(capabilities, stderr or stdout)
+
+    # Check for network errors
     if any(
         word in text
         for word in (
@@ -271,23 +230,17 @@ def _classify_failure(
         )
     ):
         return AppError(ErrorCode.NETWORK_UNAVAILABLE)
+
+    # Fallback: unknown error
     return AppError(
         ErrorCode.NONZERO_EXIT,
         f"Claude exited with code {returncode}: {sanitize_text(stderr or stdout, 300)}",
     )
 
 
-def _statusline_settings(paths: AppPaths) -> str:
-    python = shlex.quote(str(Path(sys.executable).resolve()))
-    home = shlex.quote(str(paths.base))
-    command = f"{python} -m claude_starter.statusline_capture --home {home}"
-    return json.dumps({"statusLine": {"type": "command", "command": command}})
-
-
 def _build_args(
     capabilities: ClaudeCapabilities,
     model: str | None,
-    paths: AppPaths | None = None,
 ) -> list[str]:
     if capabilities.executable is None:
         raise AppError(ErrorCode.CLAUDE_NOT_FOUND)
@@ -307,10 +260,6 @@ def _build_args(
         argv.extend(["--permission-mode", "dontAsk"])
     if "--tools" in help_text:
         argv.extend(["--tools", ""])
-    if "--setting-sources" in help_text:
-        argv.extend(["--setting-sources", ""])
-    if paths is not None and "--settings" in help_text:
-        argv.extend(["--settings", _statusline_settings(paths)])
     if "--mcp-config" in help_text and "--strict-mcp-config" in help_text:
         argv.extend(["--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config"])
     return argv
@@ -322,10 +271,9 @@ def _invoke_once(
     capabilities: ClaudeCapabilities,
     model: str | None,
 ) -> dict[str, Any]:
-    argv = _build_args(capabilities, model, paths)
+    argv = _build_args(capabilities, model)
     environment = _clean_environment(paths, config)
     started = time.monotonic()
-    started_epoch = time.time()
     process = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -369,23 +317,12 @@ def _invoke_once(
     actual_model = payload.get("model")
     if not actual_model and isinstance(payload.get("modelUsage"), dict):
         actual_model = next(iter(payload["modelUsage"]), None)
-    rate_limits = normalized_rate_limits(payload.get("rate_limits"))
-    if rate_limits is None and "--settings" in capabilities.help_text:
-        # Claude can render its status line immediately after the print-mode
-        # process exits. Give that bounded helper a moment to atomically publish
-        # the structured reset timestamp.
-        deadline = time.monotonic() + 2
-        while rate_limits is None and time.monotonic() < deadline:
-            rate_limits = captured_rate_limits(paths, newer_than=started_epoch)
-            if rate_limits is None:
-                time.sleep(0.05)
     return {
         "response": sanitize_text(result.strip(), 1000),
         "selected_model": str(actual_model or model or "default"),
         "duration_seconds": duration,
         "exit_code": process.returncode,
         "usage": payload.get("usage") if isinstance(payload.get("usage"), dict) else None,
-        "rate_limits": rate_limits,
     }
 
 

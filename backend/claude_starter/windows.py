@@ -56,8 +56,15 @@ def current_window_start(
     return anchor + n * interval
 
 
-def _get_interval(config_window: dict[str, Any]) -> timedelta:
-    """Extract interval from window config dict."""
+def get_interval(config_window: dict[str, Any]) -> timedelta:
+    """Extract interval from window config dict.
+
+    Args:
+        config_window: Window configuration dict with 'interval_minutes' key
+
+    Returns:
+        Interval as timedelta
+    """
     minutes = int(config_window.get("interval_minutes", 0))
     return timedelta(minutes=minutes)
 
@@ -139,7 +146,7 @@ def advance_window(
         raise ValueError(f"Window {wtype} has no anchor configured")
 
     anchor = datetime.fromisoformat(anchor_iso).astimezone(timezone.utc)
-    interval = _get_interval(w)
+    interval = get_interval(w)
 
     return next_window_after(anchor, interval, now)
 
