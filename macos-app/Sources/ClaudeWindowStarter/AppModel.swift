@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
     @Published var fiveHourIsCalibrated = false
     @Published var weeklyIsCalibrated = false
 
+    private(set) var isSavingBackground = false
     private let backend = BackendClient()
 
     init(settings: ClientSettings = SettingsStore.load()) {
@@ -171,7 +172,9 @@ final class AppModel: ObservableObject {
     }
 
     func saveBackgroundImmediately() {
+        isSavingBackground = true
         saveConfiguration()
+        isSavingBackground = false
     }
 
     func transferTelegramCredential() {

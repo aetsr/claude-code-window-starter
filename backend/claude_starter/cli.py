@@ -166,10 +166,11 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             result = run_claude(paths, config, trigger=trigger, window_type=window_type, dry_run=bool(args.dry_run))
             if (
                 not args.dry_run
+                and window_type  # only notify on scheduled window runs, not manual UI triggers
                 and config["telegram"]["enabled"]
                 and config["telegram"]["notify_success"]
             ):
-                notify(paths, f"Claude request succeeded. Model: {result['selected_model']}")
+                notify(paths, f"✅ {window_type} penceresi tamamlandı. Model: {result['selected_model']}")
             rotate_logs(paths, config["log_retention_days"])
 
             # Update window state on success
