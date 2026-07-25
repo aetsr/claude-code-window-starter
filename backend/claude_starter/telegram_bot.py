@@ -86,12 +86,11 @@ class TelegramBot:
         previous = float(state.get("telegram_rate_limits", {}).get(str(user_id), 0))
         if now - previous < cooldown:
             return False
-        update_state(
-            self.paths,
-            lambda current: current.setdefault("telegram_rate_limits", {}).__setitem__(
-                str(user_id), now
-            ),
-        )
+
+        def record_rate_limit(current: dict[str, Any]) -> None:
+            current.setdefault("telegram_rate_limits", {})[str(user_id)] = now
+
+        update_state(self.paths, record_rate_limit)
         return True
 
     def _confirmation(

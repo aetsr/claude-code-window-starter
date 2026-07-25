@@ -10,7 +10,9 @@ struct BackendClient {
             throw ProcessRunnerError.invalidOutput
         }
         if !envelope.ok {
-            throw ProcessRunnerError.nonZero(result.status, envelope.error?.message ?? "Backend error")
+            let code = envelope.error?.code ?? "ERROR"
+            let message = envelope.error?.message ?? "Backend error"
+            throw ProcessRunnerError.nonZero(result.status, "\(code): \(message)")
         }
         return envelope
     }

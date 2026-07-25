@@ -383,7 +383,9 @@ def run_claude(
         raise AppError(ErrorCode.CONFIG_INVALID, "Automatic execution is disabled")
     state = load_state(paths)
     next_window = state.get("next_window_run_at")
-    if is_automatic and isinstance(next_window, str):
+    # Check five-hour window: skip if not due (prevents hitting limit repeatedly).
+    # For automatic triggers always; for manual triggers only if automation is enabled.
+    if config["enabled"] and isinstance(next_window, str):
         try:
             if datetime.now(timezone.utc) < datetime.fromisoformat(next_window):
                 raise AppError(ErrorCode.WINDOW_NOT_DUE)
