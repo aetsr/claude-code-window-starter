@@ -7,14 +7,13 @@ import time
 from datetime import datetime
 from typing import Any
 
-from .claude import WINDOW_UNVERIFIED
 from .config import load_config, save_config
 from .errors import AppError, ErrorCode
 from .health import diagnose, health_report
 from .locks import FileLock
 from .logging_utils import log_event, tail_sanitized
 from .paths import AppPaths
-from .scheduler import next_automatic_run, next_run
+from .scheduler import next_runs
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 
@@ -166,12 +165,9 @@ class TelegramBot:
                 {
                     "enabled": self.config["enabled"],
                     "background_enabled": self.config["background_enabled"],
-                    "schedule": f"{self.config['schedule_time']} {self.config['timezone']}",
-                    "next": next_automatic_run(self.paths, self.config).isoformat(),
-                    "pending_automatic": state.get("pending_automatic"),
+                    "timezone": self.config["timezone"],
                     "last_run": state.get("last_run"),
                     "health": health_report(self.paths),
-                    "window_note": WINDOW_UNVERIFIED,
                 }
             ), None
         if command == "/start":
@@ -208,16 +204,15 @@ class TelegramBot:
             save_config(self.paths, self.config)
             return "Background sleep-prevention mode disabled.", None
         if command == "/usage":
-            usage = state.get("usage_window")
-            if isinstance(usage, dict):
-                return _pretty(
-                    {
-                        "usage_window": usage,
-                        "next": next_automatic_run(self.paths, self.config).isoformat(),
-                        "last_run": state.get("last_run"),
-                    }
-                ), None
-            return "No usage window data yet. Run Claude once to capture it.", None
+            # Show window status instead of old usage_window
+            next_window = next_runs(self.paths, self.config)
+            return _pretty(
+                {
+                    "five_hour_window": next_window.get("five_hour"),
+                    "weekly_window": next_window.get("weekly"),
+                    "last_run": state.get("last_run"),
+                }
+            ), None
         if command == "/maintenance":
             return _pretty(
                 {
@@ -233,16 +228,11 @@ class TelegramBot:
         if command == "/health":
             return _pretty(health_report(self.paths)), None
         if command == "/schedule":
-            return next_automatic_run(self.paths, self.config).isoformat(), None
-        if command == "/settime":
-            if self.config.get("automation_mode") == "five_hour_window":
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Five-hour window mode has no fixed clock time"
-                )
-            _validate_time(argument)
-            self.config["schedule_time"] = argument
-            save_config(self.paths, self.config)
-            return f"Schedule updated. Next: {next_run(self.config).isoformat()}", None
+            next_window = next_runs(self.paths, self.config)
+            five_hour = next_window.get("five_hour")
+            if five_hour:
+                return f"Next five-hour window: {five_hour.isoformat()}", None
+            return "No windows scheduled", None
         if command == "/timezone":
             return str(self.config["timezone"]), None
         if command == "/settimezone":
@@ -254,7 +244,7 @@ class TelegramBot:
                 raise AppError(ErrorCode.CONFIG_INVALID, "Invalid IANA timezone") from exc
             self.config["timezone"] = argument
             save_config(self.paths, self.config)
-            return f"Timezone updated. Next: {next_run(self.config).isoformat()}", None
+            return f"Timezone updated to {argument}.", None
         if command in {"/enable", "/disable"}:
             self.config["enabled"] = command == "/enable"
             save_config(self.paths, self.config)
@@ -270,7 +260,11 @@ class TelegramBot:
                 None,
             )
         if command == "/next":
-            return next_run(self.config).isoformat(), None
+            next_window = next_runs(self.paths, self.config)
+            five_hour = next_window.get("five_hour")
+            if five_hour:
+                return f"Next run: {five_hour.isoformat()}", None
+            return "No windows scheduled", None
         if command == "/last":
             return _pretty(state.get("last_run")), None
         if command == "/logs":

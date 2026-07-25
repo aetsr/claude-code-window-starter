@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import platform
-import plistlib
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -20,17 +19,18 @@ from .health import diagnose, health_report
 from .io_utils import atomic_write_bytes
 from .logging_utils import log_event, rotate_logs, sanitize
 from .paths import AppPaths
-from .scheduler import automatic_due, clear_pending, mark_pending, next_automatic_run
+from .scheduler import next_runs, windows_due
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 from .telegram_bot import TelegramBot, notify
+from .windows import advance_window, format_countdown
 
 
 def envelope(
     ok: bool, status: str, data: Any = None, error: AppError | None = None
 ) -> dict[str, Any]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "ok": ok,
         "status": status,
         "error": error.to_dict() if error else None,
@@ -56,6 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--trigger", choices=["macos_ui", "telegram", "automatic", "catch_up", "background"]
     )
+    run_parser.add_argument(
+        "--window-type", choices=["five_hour", "weekly"], help="Window being triggered"
+    )
 
     config_parser = sub.add_parser("config")
     config_sub = config_parser.add_subparsers(dest="config_action", required=True)
@@ -66,6 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     set_parser = config_sub.add_parser("set")
     set_parser.add_argument("key")
     set_parser.add_argument("value", help="JSON value")
+
+    calibrate_parser = sub.add_parser("calibrate")
+    calibrate_parser.add_argument("--window-type", choices=["five_hour", "weekly"], required=True)
+    calibrate_parser.add_argument("--anchor", required=True, help="ISO datetime string (UTC)")
 
     schedule = sub.add_parser("schedule")
     schedule.add_argument("--apply-launchd", action="store_true")
@@ -101,19 +108,32 @@ def build_parser() -> argparse.ArgumentParser:
 def _status(paths: AppPaths) -> dict[str, Any]:
     config = load_config(paths, create=True)
     state = load_state(paths)
+    now = datetime.now(timezone.utc)
+    runs = next_runs(paths, config)
+
+    # Build window status for each window type
+    windows_status = {}
+    for wtype in ("five_hour", "weekly"):
+        w = config.get("windows", {}).get(wtype, {})
+        next_run = runs.get(wtype)
+        countdown = format_countdown(next_run, now) if next_run else "—"
+        windows_status[wtype] = {
+            "enabled": w.get("enabled", False),
+            "anchor_iso": w.get("anchor_iso"),
+            "next_run_at": next_run.isoformat() if next_run else None,
+            "countdown": countdown,
+            "last_triggered_at": state.get(f"{wtype}_last_triggered_at"),
+            "last_result": state.get(f"{wtype}_last_result"),
+            "calibration_needed": state.get(f"{wtype}_calibration_needed"),
+        }
+
     return {
         "enabled": config["enabled"],
         "background_enabled": config["background_enabled"],
-        "telegram_enabled": config["telegram"]["enabled"],
-        "automation_mode": config["automation_mode"],
-        "schedule_time": config["schedule_time"],
         "timezone": config["timezone"],
-        "next_run": next_automatic_run(paths, config).isoformat(),
-        "automatic_due": automatic_due(paths, config),
-        "pending_automatic": state.get("pending_automatic"),
-        "automatic_blocked": state.get("automatic_blocked"),
+        "telegram_enabled": config["telegram"]["enabled"],
+        "windows": windows_status,
         "last_run": state.get("last_run"),
-        "usage_window": state.get("usage_window"),
         "health": health_report(paths),
     }
 
@@ -139,107 +159,37 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         return "healthy", data
     if command == "run":
         config = load_config(paths, create=True)
-        is_automatic = bool(
-            args.automatic or args.trigger in {"automatic", "catch_up", "background"}
-        )
-        if is_automatic and not config["enabled"]:
-            return "disabled", {"real_request_sent": False, "reason": "automation_disabled"}
-        if is_automatic and not args.dry_run and not automatic_due(paths, config):
-            return "not_due", {"real_request_sent": False, "reason": "usage_window_not_due"}
-        trigger = args.trigger or ("background" if is_automatic else "macos_ui")
+        trigger = args.trigger or "macos_ui"
+        window_type = args.window_type
         started = datetime.now(timezone.utc).isoformat()
         try:
-            result = run_claude(paths, config, trigger=trigger, dry_run=bool(args.dry_run))
-            if is_automatic and not args.dry_run:
-                clear_pending(paths)
+            result = run_claude(paths, config, trigger=trigger, window_type=window_type, dry_run=bool(args.dry_run))
             if (
                 not args.dry_run
                 and config["telegram"]["enabled"]
                 and config["telegram"]["notify_success"]
             ):
-                # Build notification with usage information if available
-                message_parts = [
-                    f"Claude request succeeded. Model: {result['selected_model']}",
-                    result['usage_window_verification']['message'],
-                ]
-                # Add usage percentage and reset time if available
-                rate_limits = result.get("rate_limits")
-                if isinstance(rate_limits, dict):
-                    five_hour = rate_limits.get("five_hour", {})
-                    used_pct = five_hour.get("used_percentage")
-                    resets_at = five_hour.get("resets_at")
-                    if used_pct is not None:
-                        message_parts.append(f"Usage: {int(used_pct)}%")
-                    if resets_at is not None:
-                        from datetime import datetime as dt
-                        reset_time = dt.fromtimestamp(resets_at, tz=timezone.utc)
-                        message_parts.append(f"Resets: {reset_time.strftime('%H:%M %Z')}")
-                notify(paths, "\n".join(message_parts))
+                notify(paths, f"Claude request succeeded. Model: {result['selected_model']}")
             rotate_logs(paths, config["log_retention_days"])
+
+            # Update window state on success
+            if window_type and not args.dry_run:
+                def update_window(state: dict[str, Any]) -> None:
+                    now = datetime.now(timezone.utc)
+                    next_at = advance_window(window_type, config, now)
+                    state[f"{window_type}_last_triggered_at"] = now.isoformat()
+                    state[f"{window_type}_next_run_at"] = next_at.isoformat()
+                    state[f"{window_type}_last_result"] = {
+                        "status": "success",
+                        "trigger_time": now.isoformat(),
+                        "selected_model": result["selected_model"],
+                        "response_summary": result["response"],
+                    }
+                    state[f"{window_type}_calibration_needed"] = None
+                update_state(paths, update_window)
+
             return "dry_run" if args.dry_run else "success", result
         except AppError as exc:
-            if is_automatic and exc.code in {
-                ErrorCode.NETWORK_UNAVAILABLE,
-                ErrorCode.DNS_FAILURE,
-                ErrorCode.ALREADY_RUNNING,
-            }:
-                mark_pending(paths, config, exc.code.value)
-                return (
-                    "pending_connectivity" if exc.code != ErrorCode.ALREADY_RUNNING else "pending",
-                    {
-                        "real_request_sent": False,
-                        "reason": exc.code.value,
-                        "pending": True,
-                    },
-                )
-            if exc.code == ErrorCode.RATE_OR_USAGE_LIMIT:
-                # Update next_window_run_at for UI even on manual trigger.
-                from .usage import next_window_time
-
-                next_at, _ = next_window_time(None, completed_at=datetime.now(timezone.utc), grace_seconds=int(config.get("reset_grace_seconds", 60)))
-                update_state(paths, lambda state: state.__setitem__("next_window_run_at", next_at.isoformat()))
-                if is_automatic:
-                    mark_pending(
-                        paths,
-                        config,
-                        exc.code.value,
-                        minimum_delay=900,
-                        maximum_delay=3600,
-                    )
-                # Notify about rate limit with reset time
-                if (
-                    not args.dry_run
-                    and config["telegram"]["enabled"]
-                    and config["telegram"]["notify_failure"]
-                ):
-                    try:
-                        reset_msg = f"Claude usage limit reached. Resumes at {next_at.strftime('%H:%M %Z')}"
-                        notify(paths, f"Claude request failed: {exc.code.value} — {reset_msg}")
-                    except AppError:
-                        pass
-                if is_automatic:
-                    return "pending_limit", {
-                        "real_request_sent": False,
-                        "reason": exc.code.value,
-                        "pending": True,
-                    }
-            if is_automatic and exc.code in {
-                ErrorCode.ALREADY_RAN_TODAY,
-                ErrorCode.WINDOW_NOT_DUE,
-            }:
-                return "skipped", {"real_request_sent": False, "reason": exc.code.value}
-            if is_automatic:
-                error_code = exc.code.value
-
-                def block_automatic(state: dict[str, Any]) -> None:
-                    state["automatic_blocked"] = {
-                        "error_code": error_code,
-                        "blocked_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                    state["pending_automatic"] = None
-                    state["next_automatic_retry_at"] = None
-
-                update_state(paths, block_automatic)
             log_event(
                 paths,
                 {
@@ -257,6 +207,33 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 except AppError:
                     pass
             raise
+    if command == "calibrate":
+        config = load_config(paths, create=True)
+        window_type = args.window_type
+        anchor_iso = args.anchor
+
+        # Validate anchor is valid ISO datetime
+        try:
+            datetime.fromisoformat(anchor_iso)
+        except ValueError:
+            raise AppError(ErrorCode.CONFIG_INVALID, f"Invalid ISO datetime: {anchor_iso}")
+
+        # Update config
+        config["windows"][window_type]["anchor_iso"] = anchor_iso
+        save_config(paths, config)
+
+        # Compute next run and update state
+        def update_calibration(state: dict[str, Any]) -> None:
+            now = datetime.now(timezone.utc)
+            next_at = advance_window(window_type, config, now)
+            state[f"{window_type}_next_run_at"] = next_at.isoformat()
+            state[f"{window_type}_calibration_needed"] = None
+        update_state(paths, update_calibration)
+
+        next_window = next_runs(paths, config).get(window_type)
+        next_iso = next_window.isoformat() if next_window else "unknown"
+        notify(paths, f"⚙️ {window_type} penceresi kalibre edildi. Sonraki çalışma: {next_iso}")
+        return "success", {"window_type": window_type, "anchor_iso": anchor_iso, "next_run_at": next_iso}
     if command == "config":
         if args.config_action in {"init", "get"}:
             return "success", load_config(paths, create=True)
@@ -274,40 +251,24 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             config = load_config(paths, create=True)
             config = _deep_patch(config, patch)
             save_config(paths, config)
-            update_state(paths, lambda state: state.__setitem__("automatic_blocked", None))
             return "success", config
         try:
             value = json.loads(args.value)
         except json.JSONDecodeError:
             value = args.value
         updated = set_config_value(paths, args.key, value)
-        update_state(paths, lambda state: state.__setitem__("automatic_blocked", None))
         return "success", updated
     if command == "schedule":
         config = load_config(paths, create=True)
         if args.network_state == "offline":
-            if config["enabled"] and automatic_due(paths, config):
-                mark_pending(paths, config, ErrorCode.NETWORK_UNAVAILABLE.value)
             return "connectivity_recorded", {"online": False}
         if args.network_state == "online":
-            state = load_state(paths)
-            pending = state.get("pending_automatic")
-            if isinstance(pending, dict) and pending.get("reason") in {
-                ErrorCode.NETWORK_UNAVAILABLE.value,
-                ErrorCode.DNS_FAILURE.value,
-            }:
-                update_state(
-                    paths,
-                    lambda current: current.__setitem__(
-                        "next_automatic_retry_at",
-                        datetime.now(timezone.utc).isoformat(),
-                    ),
-                )
             return "connectivity_recorded", {"online": True}
-        path = _write_launchd_schedule(config) if args.apply_launchd else None
+        # Return next scheduled window runs
+        next_window_runs = next_runs(paths, config)
         return "success", {
-            "next_run": next_automatic_run(paths, config).isoformat(),
-            "launchd_plist": str(path) if path else None,
+            "next_runs": {k: v.isoformat() if v else None for k, v in next_window_runs.items()},
+            "launchd_plist": None,
         }
     if command == "telegram-bot":
         token = _read_token_stdin() if args.token_stdin else ""
@@ -519,20 +480,3 @@ def _service_action(target: str, action: str) -> dict[str, Any]:
     if process.returncode != 0:
         raise AppError(ErrorCode.LAUNCHD_FAILED, f"Unable to {action} {target} service")
     return {"label": label, "action": action, "output": process.stdout.strip()}
-
-
-def _write_launchd_schedule(config: dict[str, Any]) -> Path:
-    override = os.environ.get("CLAUDE_STARTER_LAUNCHD_PLIST")
-    path = (
-        Path(override)
-        if override
-        else Path.home() / "Library/LaunchAgents/com.openai.claude-window-starter.background.plist"
-    )
-    try:
-        document = plistlib.loads(path.read_bytes())
-        hour, minute = (int(part) for part in config["schedule_time"].split(":"))
-        document["StartCalendarInterval"] = {"Hour": hour, "Minute": minute}
-        atomic_write_bytes(path, plistlib.dumps(document, fmt=plistlib.FMT_XML))
-    except (OSError, ValueError, plistlib.InvalidFileException) as exc:
-        raise AppError(ErrorCode.LAUNCHD_FAILED, "Unable to update LaunchAgent schedule") from exc
-    return path

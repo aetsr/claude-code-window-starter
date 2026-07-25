@@ -17,6 +17,7 @@ from claude_starter.config import DEFAULT_CONFIG, save_config
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
 from claude_starter.state import load_state, update_state
+from claude_starter.windows import advance_window
 
 FAKE = """#!{python}
 import json, sys
@@ -24,8 +25,9 @@ if "--version" in sys.argv:
     print("2.2.e2e")
 elif "--help" in sys.argv:
     print(
-        "--output-format --model --settings --tools "
-        "--setting-sources --mcp-config --strict-mcp-config"
+        "--output-format --model --no-session-persistence --no-chrome "
+        "--disable-slash-commands --permission-mode dontAsk --tools "
+        "--mcp-config --strict-mcp-config"
     )
 elif "auth" in sys.argv:
     print(json.dumps({{"authenticated": True, "method": "oauth"}}))
@@ -33,13 +35,14 @@ else:
     print(json.dumps({{
         "result": "OK",
         "model": "claude-haiku-test",
-        "rate_limits": {{"five_hour": {{"used_percentage": 3.0, "resets_at": 2000000000}}}}
+        "usage": {{"input_tokens": 1}}
     }}))
 """
 
 
 class AutomationE2ETests(unittest.TestCase):
-    def test_startup_automation_respects_window_and_restarts_after_due(self) -> None:
+    def test_window_trigger_updates_state_correctly(self) -> None:
+        """Test that window-based trigger updates next_run_at and last_triggered_at."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             paths = AppPaths(root / "app")
@@ -51,37 +54,34 @@ class AutomationE2ETests(unittest.TestCase):
             executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
 
             config = json.loads(json.dumps(DEFAULT_CONFIG))
+            # Set up five-hour window with anchor in the past
+            anchor = datetime.now(timezone.utc) - timedelta(hours=6)
+            config["windows"]["five_hour"]["enabled"] = True
+            config["windows"]["five_hour"]["anchor_iso"] = anchor.isoformat()
+            config["windows"]["five_hour"]["interval_minutes"] = 303
             config["enabled"] = True
             save_config(paths, config)
 
             environment = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
             with mock.patch.dict(os.environ, environment, clear=False):
-                first = io.StringIO()
-                with redirect_stdout(first):
-                    code = main(["--home", str(paths.base), "--json", "run", "--automatic"])
+                # Run with window_type specified
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = main(
+                        ["--home", str(paths.base), "--json", "run", "--window-type", "five_hour"]
+                    )
                 self.assertEqual(code, 0)
-                self.assertEqual(json.loads(first.getvalue())["status"], "success")
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["status"], "success")
 
-                second = io.StringIO()
-                with redirect_stdout(second):
-                    code = main(["--home", str(paths.base), "--json", "run", "--automatic"])
-                self.assertEqual(code, 0)
-                self.assertEqual(json.loads(second.getvalue())["status"], "not_due")
+                # Verify state was updated
+                state = load_state(paths)
+                self.assertIsNotNone(state.get("five_hour_last_triggered_at"))
+                self.assertIsNotNone(state.get("five_hour_next_run_at"))
+                self.assertIsNone(state.get("five_hour_calibration_needed"))
 
-                update_state(
-                    paths,
-                    lambda state: state.__setitem__(
-                        "next_window_run_at",
-                        (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
-                    ),
-                )
-                third = io.StringIO()
-                with redirect_stdout(third):
-                    code = main(["--home", str(paths.base), "--json", "run", "--automatic"])
-                self.assertEqual(code, 0)
-                self.assertEqual(json.loads(third.getvalue())["status"], "success")
-
-    def test_connectivity_pending_is_rescheduled_when_online(self) -> None:
+    def test_calibrate_command_sets_anchor(self) -> None:
+        """Test that calibrate command updates anchor_iso and computes next_run_at."""
         with tempfile.TemporaryDirectory() as directory:
             paths = AppPaths(Path(directory))
             paths.ensure()
@@ -89,22 +89,8 @@ class AutomationE2ETests(unittest.TestCase):
             config["enabled"] = True
             save_config(paths, config)
 
-            with mock.patch(
-                "claude_starter.cli.run_claude",
-                side_effect=AppError(ErrorCode.NETWORK_UNAVAILABLE),
-            ):
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    code = main(["--home", str(paths.base), "--json", "run", "--automatic"])
-                self.assertEqual(code, 0)
-                self.assertEqual(json.loads(output.getvalue())["status"], "pending_connectivity")
-
-            update_state(
-                paths,
-                lambda state: state.__setitem__(
-                    "next_automatic_retry_at", "2100-01-01T00:00:00+00:00"
-                ),
-            )
+            # Calibrate with a specific anchor time
+            anchor = datetime(2026, 7, 25, 10, 0, 0, tzinfo=timezone.utc)
             output = io.StringIO()
             with redirect_stdout(output):
                 code = main(
@@ -112,16 +98,92 @@ class AutomationE2ETests(unittest.TestCase):
                         "--home",
                         str(paths.base),
                         "--json",
-                        "schedule",
-                        "--network-state",
-                        "online",
+                        "calibrate",
+                        "--window-type",
+                        "five_hour",
+                        "--anchor",
+                        anchor.isoformat(),
                     ]
                 )
             self.assertEqual(code, 0)
-            self.assertEqual(json.loads(output.getvalue())["status"], "connectivity_recorded")
-            retry = load_state(paths)["next_automatic_retry_at"]
-            self.assertIsNotNone(retry)
-            self.assertLess(
-                datetime.fromisoformat(retry),
-                datetime.now(timezone.utc) + timedelta(minutes=1),
-            )
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["data"]["anchor_iso"], anchor.isoformat())
+
+            # Verify config was updated
+            updated_config = json.loads(paths.config_file.read_text())
+            self.assertEqual(updated_config["windows"]["five_hour"]["anchor_iso"], anchor.isoformat())
+
+    def test_status_command_shows_window_info(self) -> None:
+        """Test that status command displays window countdown and next_run_at."""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory))
+            paths.ensure()
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            anchor = datetime.now(timezone.utc) - timedelta(hours=4)
+            config["windows"]["five_hour"]["enabled"] = True
+            config["windows"]["five_hour"]["anchor_iso"] = anchor.isoformat()
+            config["windows"]["five_hour"]["interval_minutes"] = 303
+            save_config(paths, config)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(["--home", str(paths.base), "--json", "status"])
+            self.assertEqual(code, 0)
+            result = json.loads(output.getvalue())
+            data = result["data"]
+
+            # Verify window status is in output
+            self.assertIn("windows", data)
+            self.assertIn("five_hour", data["windows"])
+            five_hour = data["windows"]["five_hour"]
+            self.assertTrue(five_hour["enabled"])
+            self.assertIsNotNone(five_hour["next_run_at"])
+            self.assertIsNotNone(five_hour["countdown"])
+
+    def test_dry_run_with_window_type_doesnt_update_state(self) -> None:
+        """Test that dry-run mode doesn't persist state changes."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = AppPaths(root / "app")
+            paths.ensure()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            executable = bin_dir / "claude"
+            executable.write_text(FAKE.format(python=sys.executable), encoding="utf-8")
+            executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            anchor = datetime.now(timezone.utc) - timedelta(hours=6)
+            config["windows"]["five_hour"]["enabled"] = True
+            config["windows"]["five_hour"]["anchor_iso"] = anchor.isoformat()
+            config["enabled"] = True
+            save_config(paths, config)
+
+            environment = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = main(
+                        [
+                            "--home",
+                            str(paths.base),
+                            "--json",
+                            "run",
+                            "--window-type",
+                            "five_hour",
+                            "--dry-run",
+                        ]
+                    )
+                self.assertEqual(code, 0)
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["status"], "dry_run")
+
+                # Verify state was NOT updated
+                state = load_state(paths)
+                self.assertIsNone(state.get("five_hour_last_triggered_at"))
+                self.assertIsNone(state.get("five_hour_next_run_at"))
+
+
+if __name__ == "__main__":
+    unittest.main()
