@@ -190,5 +190,63 @@ class ClaudeTests(unittest.TestCase):
                 self.assertEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT, f"Failed for: {phrase}")
 
 
+    def test_manual_trigger_respects_window_when_automation_enabled(self) -> None:
+        """Manual trigger should respect 5-hour window if automation enabled."""
+        config = self.config()
+        config["enabled"] = True
+        config["model"] = "sonnet"
+        # Run once to establish next_window_run_at in the future
+        run_claude(self.paths, config, trigger="macos_ui", dry_run=False)
+        state = json.loads(self.paths.state_file.read_text())
+        next_window_iso = state["next_window_run_at"]
+        # Try to run again immediately (should fail WINDOW_NOT_DUE)
+        with self.assertRaises(AppError) as context:
+            run_claude(self.paths, config, trigger="macos_ui", dry_run=False)
+        self.assertEqual(context.exception.code, ErrorCode.WINDOW_NOT_DUE)
+
+    def test_manual_trigger_ignores_window_when_automation_disabled(self) -> None:
+        """Manual trigger should run anytime if automation is disabled."""
+        config = self.config()
+        config["enabled"] = False
+        config["model"] = "sonnet"
+        # First run
+        result1 = run_claude(self.paths, config, trigger="macos_ui", dry_run=False)
+        self.assertTrue(result1["real_request_sent"])
+        # Immediate second run (should work because automation disabled)
+        result2 = run_claude(self.paths, config, trigger="macos_ui", dry_run=False)
+        self.assertTrue(result2["real_request_sent"])
+
+    def test_rate_limit_error_updates_next_window(self) -> None:
+        """Rate-limit error should update next_window_run_at even on manual trigger."""
+        from claude_starter.cli import execute
+        from claude_starter.io_utils import read_json
+        import argparse
+
+        config = self.config()
+        config["enabled"] = True
+        config["model"] = "limit-error"
+        from claude_starter.config import save_config
+
+        save_config(self.paths, config)
+        state_before = read_json(self.paths.state_file, {})
+        next_before = state_before.get("next_window_run_at")
+        # Simulate CLI: run --manual --trigger macos_ui
+        args = argparse.Namespace(
+            command="run",
+            manual=True,
+            automatic=False,
+            dry_run=False,
+            trigger="macos_ui",
+        )
+        with self.assertRaises(AppError) as context:
+            execute(args, self.paths)
+        self.assertEqual(context.exception.code, ErrorCode.RATE_OR_USAGE_LIMIT)
+        state_after = read_json(self.paths.state_file, {})
+        next_after = state_after.get("next_window_run_at")
+        # next_window_run_at should be updated to future time (5 hours from now)
+        self.assertIsNotNone(next_after)
+        self.assertNotEqual(next_after, next_before)
+
+
 if __name__ == "__main__":
     unittest.main()
