@@ -73,9 +73,19 @@ struct ClientSettings: Codable, Equatable {
     var telegramEnabled = false
     var notificationIsChannel = false
 
+    // Window configuration
+    var fiveHourEnabled = true
+    var fiveHourAnchorISO = ""
+    var fiveHourIntervalMinutes = 303
+    var weeklyEnabled = false
+    var weeklyAnchorISO = ""
+    var weeklyIntervalMinutes = 10080
+
     enum CodingKeys: String, CodingKey {
         case scheduleTime, timezone, model, prompt, timeout, enabled, backgroundEnabled, catchUp
         case telegramUserID, telegramChatID, notificationID, telegramEnabled, notificationIsChannel
+        case fiveHourEnabled, fiveHourAnchorISO, fiveHourIntervalMinutes
+        case weeklyEnabled, weeklyAnchorISO, weeklyIntervalMinutes
     }
 
     init() {}
@@ -95,6 +105,12 @@ struct ClientSettings: Codable, Equatable {
         notificationID = try values.decodeIfPresent(String.self, forKey: .notificationID) ?? notificationID
         telegramEnabled = try values.decodeIfPresent(Bool.self, forKey: .telegramEnabled) ?? telegramEnabled
         notificationIsChannel = try values.decodeIfPresent(Bool.self, forKey: .notificationIsChannel) ?? notificationIsChannel
+        fiveHourEnabled = try values.decodeIfPresent(Bool.self, forKey: .fiveHourEnabled) ?? fiveHourEnabled
+        fiveHourAnchorISO = try values.decodeIfPresent(String.self, forKey: .fiveHourAnchorISO) ?? fiveHourAnchorISO
+        fiveHourIntervalMinutes = try values.decodeIfPresent(Int.self, forKey: .fiveHourIntervalMinutes) ?? fiveHourIntervalMinutes
+        weeklyEnabled = try values.decodeIfPresent(Bool.self, forKey: .weeklyEnabled) ?? weeklyEnabled
+        weeklyAnchorISO = try values.decodeIfPresent(String.self, forKey: .weeklyAnchorISO) ?? weeklyAnchorISO
+        weeklyIntervalMinutes = try values.decodeIfPresent(Int.self, forKey: .weeklyIntervalMinutes) ?? weeklyIntervalMinutes
     }
 
     func encode(to encoder: Encoder) throws {
@@ -112,5 +128,11 @@ struct ClientSettings: Codable, Equatable {
         try values.encode(notificationID, forKey: .notificationID)
         try values.encode(telegramEnabled, forKey: .telegramEnabled)
         try values.encode(notificationIsChannel, forKey: .notificationIsChannel)
+        try values.encode(fiveHourEnabled, forKey: .fiveHourEnabled)
+        try values.encode(fiveHourAnchorISO, forKey: .fiveHourAnchorISO)
+        try values.encode(fiveHourIntervalMinutes, forKey: .fiveHourIntervalMinutes)
+        try values.encode(weeklyEnabled, forKey: .weeklyEnabled)
+        try values.encode(weeklyAnchorISO, forKey: .weeklyAnchorISO)
+        try values.encode(weeklyIntervalMinutes, forKey: .weeklyIntervalMinutes)
     }
 }

@@ -66,22 +66,118 @@ struct ContentView: View {
 
     private var claude: some View {
         Form {
-            Toggle("5 saatlik pencere otomasyonunu etkinleştir", isOn: $model.settings.enabled)
-            TextField("IANA zaman dilimi", text: $model.settings.timezone)
-            Picker("Model", selection: $model.settings.model) {
-                ForEach(["auto", "haiku", "sonnet", "opus"], id: \.self, content: Text.init)
+            Section("Pencere Kurulumu") {
+                Toggle("Otomasyonu etkinleştir", isOn: $model.settings.enabled)
+                TextField("IANA zaman dilimi", text: $model.settings.timezone)
+
+                // 5-hour window
+                GroupBox("5 Saatlik Pencere") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Toggle("", isOn: $model.settings.fiveHourEnabled)
+                            Text(model.fiveHourCountdown)
+                                .font(.system(.body, design: .monospaced))
+                                .fontWeight(.medium)
+                            Spacer()
+                            Text(model.fiveHourNextRunText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let result = model.fiveHourLastResultText {
+                            Text(result).font(.caption).foregroundStyle(.secondary)
+                        }
+
+                        if model.fiveHourCalibrationNeeded {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                    Text("Kalibrasyona gerek var")
+                                        .fontWeight(.medium)
+                                }
+                                if !model.fiveHourCalibrationError.isEmpty {
+                                    Text(model.fiveHourCalibrationError)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                HStack(spacing: 8) {
+                                    DatePicker("", selection: $model.calibrationDate, displayedComponents: [.date, .hourAndMinute])
+                                        .datePickerStyle(.compact)
+                                    Button("Kalibre Et") {
+                                        model.calibrateWindow("five_hour")
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                            .padding(.top, 8)
+                            .padding()
+                            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+
+                // Weekly window
+                GroupBox("Haftalık Pencere") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Toggle("", isOn: $model.settings.weeklyEnabled)
+                            Text(model.weeklyCountdown)
+                                .font(.system(.body, design: .monospaced))
+                                .fontWeight(.medium)
+                            Spacer()
+                            Text(model.weeklyNextRunText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let result = model.weeklyLastResultText {
+                            Text(result).font(.caption).foregroundStyle(.secondary)
+                        }
+
+                        if model.weeklyCalibrationNeeded {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                    Text("Kalibrasyona gerek var")
+                                        .fontWeight(.medium)
+                                }
+                                if !model.weeklyCalibrationError.isEmpty {
+                                    Text(model.weeklyCalibrationError)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                HStack(spacing: 8) {
+                                    DatePicker("", selection: $model.calibrationDate, displayedComponents: [.date, .hourAndMinute])
+                                        .datePickerStyle(.compact)
+                                    Button("Kalibre Et") {
+                                        model.calibrateWindow("weekly")
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                            .padding(.top, 8)
+                            .padding()
+                            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
             }
-            TextField("Prompt", text: $model.settings.prompt, axis: .vertical)
-            Stepper("Timeout: \(model.settings.timeout) saniye", value: $model.settings.timeout, in: 10...1800)
-            Toggle("İnternet geri geldiğinde bekleyen çalışmayı dene", isOn: $model.settings.catchUp)
-            LabeledContent("Sonraki çalışma", value: model.nextRunText)
-            LabeledContent("Reset doğrulaması", value: model.usageWindowText)
-            HStack {
-                Button("Şimdi çalıştır") { model.perform(["run", "--manual", "--trigger", "macos_ui"]) }
-                Button("Dry-run") { model.perform(["run", "--dry-run", "--trigger", "macos_ui"]) }
+
+            Section("Claude") {
+                Picker("Model", selection: $model.settings.model) {
+                    ForEach(["auto", "haiku", "sonnet", "opus"], id: \.self, content: Text.init)
+                }
+                TextField("Prompt", text: $model.settings.prompt, axis: .vertical)
+                Stepper("Timeout: \(model.settings.timeout) saniye", value: $model.settings.timeout, in: 10...1800)
+                HStack {
+                    Button("Şimdi çalıştır") { model.perform(["run", "--trigger", "macos_ui"]) }
+                    Button("Dry-run") { model.perform(["run", "--dry-run", "--trigger", "macos_ui"]) }
+                }
             }
-            Text("İlk etkinleştirmede küçük bir gerçek prompt gönderilir. Claude Code rate_limits alanı varsa resmî reset zamanı; yoksa başarıdan beş saat sonrası kullanılır.")
-                .font(.caption).foregroundStyle(.secondary)
         }
         .padding()
     }

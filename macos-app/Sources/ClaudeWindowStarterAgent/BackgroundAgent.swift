@@ -76,8 +76,11 @@ actor BackgroundAgent {
                 releaseAssertion()
             }
             writeStatus(enabled: enabled, automationEnabled: automationEnabled)
-            if automationEnabled && online && !processRunning && automaticDue(config: config) {
-                await runAutomatic()
+            if automationEnabled && online && !processRunning {
+                let windowType = windowsDue(config: config)
+                if !windowType.isEmpty {
+                    await runAutomatic(windowType: windowType)
+                }
             } else if automationEnabled && !online &&
                         Date().timeIntervalSince(lastOfflineSignal) >= 30 {
                 lastOfflineSignal = Date()
@@ -89,7 +92,7 @@ actor BackgroundAgent {
         releaseAssertion()
     }
 
-    private func runAutomatic() async {
+    private func runAutomatic(windowType: String) async {
         processRunning = true
         acquireRunAssertion()
         defer {
@@ -100,7 +103,7 @@ actor BackgroundAgent {
         guard FileManager.default.isExecutableFile(atPath: python.path) else { return }
         let process = Process()
         process.executableURL = python
-        process.arguments = ["-m", "claude_starter", "--home", base.path, "--json", "run", "--automatic", "--trigger", "background"]
+        process.arguments = ["-m", "claude_starter", "--home", base.path, "--json", "run", "--window-type", windowType, "--trigger", "background"]
         process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         process.standardInput = FileHandle.nullDevice
@@ -169,31 +172,35 @@ actor BackgroundAgent {
         return formatter.date(from: text)
     }
 
-    private func automaticDue(config: [String: Any]) -> Bool {
+    private func windowsDue(config: [String: Any]) -> String {
         let state = readState()
-        if let blocked = state["automatic_blocked"], !(blocked is NSNull) {
-            if let details = blocked as? [String: Any] {
-                if !details.isEmpty {
-                    return false
+        var duWindow = ""
+
+        // Check five_hour window
+        if let windows = config["windows"] as? [String: Any],
+           let fiveHour = windows["five_hour"] as? [String: Any],
+           let enabled = fiveHour["enabled"] as? Bool,
+           enabled {
+            if let nextRun = parseISO8601(state["five_hour_next_run_at"]) {
+                if Date() >= nextRun {
+                    duWindow = "five_hour"
                 }
-            } else {
-                return false
             }
         }
-        if state["pending_automatic"] is [String: Any] {
-            if let retryAt = parseISO8601(state["next_automatic_retry_at"]) {
-                return Date() >= retryAt
+
+        // Check weekly window (takes precedence, but both will be marked triggered on success)
+        if let windows = config["windows"] as? [String: Any],
+           let weekly = windows["weekly"] as? [String: Any],
+           let enabled = weekly["enabled"] as? Bool,
+           enabled {
+            if let nextRun = parseISO8601(state["weekly_next_run_at"]) {
+                if Date() >= nextRun {
+                    duWindow = "weekly"
+                }
             }
-            return true
         }
-        let mode = (config["automation_mode"] as? String) ?? "five_hour_window"
-        if mode == "five_hour_window" {
-            if let nextWindow = parseISO8601(state["next_window_run_at"]) {
-                return Date() >= nextWindow
-            }
-            return true
-        }
-        return true
+
+        return duWindow
     }
 
     private func networkPathChanged(_ value: Bool) async {

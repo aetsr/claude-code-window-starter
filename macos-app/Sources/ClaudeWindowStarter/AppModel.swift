@@ -20,6 +20,19 @@ final class AppModel: ObservableObject {
     @Published var claudeAuthHint = ""
     @Published var telegramPairCode = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
 
+    // Window countdown and calibration
+    @Published var fiveHourCountdown = "—"
+    @Published var fiveHourNextRunText = "Henüz kurulmadı"
+    @Published var fiveHourLastResultText: String? = nil
+    @Published var fiveHourCalibrationNeeded = false
+    @Published var fiveHourCalibrationError = ""
+    @Published var weeklyCountdown = "—"
+    @Published var weeklyNextRunText = "Henüz kurulmadı"
+    @Published var weeklyLastResultText: String? = nil
+    @Published var weeklyCalibrationNeeded = false
+    @Published var weeklyCalibrationError = ""
+    @Published var calibrationDate = Date()
+
     private let backend = BackendClient()
 
     init(settings: ClientSettings = SettingsStore.load()) {
@@ -113,6 +126,18 @@ final class AppModel: ObservableObject {
             "prompt": settings.prompt,
             "timeout_seconds": settings.timeout,
             "allow_catch_up": settings.catchUp,
+            "windows": [
+                "five_hour": [
+                    "enabled": settings.fiveHourEnabled,
+                    "anchor_iso": settings.fiveHourAnchorISO,
+                    "interval_minutes": settings.fiveHourIntervalMinutes,
+                ],
+                "weekly": [
+                    "enabled": settings.weeklyEnabled,
+                    "anchor_iso": settings.weeklyAnchorISO,
+                    "interval_minutes": settings.weeklyIntervalMinutes,
+                ],
+            ],
             "telegram": [
                 "enabled": settings.telegramEnabled,
                 "allowed_user_ids": userID.map { [$0] } ?? [],
@@ -186,6 +211,12 @@ final class AppModel: ObservableObject {
         ).uppercased()
     }
 
+    func calibrateWindow(_ windowType: String) {
+        let formatter = ISO8601DateFormatter()
+        let isoString = formatter.string(from: calibrationDate)
+        perform(["calibrate", "--window-type", windowType, "--anchor", isoString])
+    }
+
     func pairTelegram() {
         busy = true
         lastError = nil
@@ -222,38 +253,13 @@ final class AppModel: ObservableObject {
         if case .bool(let value)? = object["enabled"] { settings.enabled = value }
         if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
         if case .bool(let value)? = object["telegram_enabled"] { settings.telegramEnabled = value }
-        if case .string(let value)? = object["next_run"] { nextRunText = value }
-        if case .object(let usage)? = object["usage_window"] {
-            var parts: [String] = []
 
-            // Check usage percentage
-            if case .number(let usedPct)? = usage["used_percentage"] {
-                let rounded = Int(usedPct)
-                parts.append("Kullanım: \(rounded)%")
-                if rounded >= 100 {
-                    parts.append("⚠️ Limit dolu!")
-                }
-            }
-
-            // Check reset time
-            if case .number(let resetsAt)? = usage["resets_at_epoch"] {
-                let resetDate = Date(timeIntervalSince1970: TimeInterval(resetsAt))
-                let formatter = DateFormatter()
-                formatter.timeStyle = .short
-                formatter.dateStyle = .none
-                let resetTime = formatter.string(from: resetDate)
-                parts.append("Reset: \(resetTime)")
-            }
-
-            // Check verification status
-            if case .bool(let verified)? = usage["verified"] {
-                parts.append(verified ? "✓ Resmî" : "~ Tahmin")
-            }
-
-            usageWindowText = parts.isEmpty ? "İlk Claude kontrolü bekleniyor" : parts.joined(separator: " • ")
-        } else {
-            usageWindowText = "İlk Claude kontrolü bekleniyor"
+        // Parse window status
+        if case .object(let windows)? = object["windows"] {
+            parseWindowStatus("five_hour", windows["five_hour"])
+            parseWindowStatus("weekly", windows["weekly"])
         }
+
         if case .object(let health)? = object["health"], case .object(let checks)? = health["checks"] {
             if case .object(let background)? = checks["background"] {
                 if case .bool(let value)? = background["network_online"] { networkOnline = value }
@@ -271,6 +277,75 @@ final class AppModel: ObservableObject {
         if case .object? = object["automatic_blocked"] { automationBlocked = true } else { automationBlocked = false }
     }
 
+    private func parseWindowStatus(_ windowType: String, _ value: JSONValue?) {
+        guard case .object(let window) = value else { return }
+
+        let countdownKey = windowType == "five_hour" ? "fiveHourCountdown" : "weeklyCountdown"
+        let nextRunKey = windowType == "five_hour" ? "fiveHourNextRunText" : "weeklyNextRunText"
+        let lastResultKey = windowType == "five_hour" ? "fiveHourLastResultText" : "weeklyLastResultText"
+        let calibrationNeededKey = windowType == "five_hour" ? "fiveHourCalibrationNeeded" : "weeklyCalibrationNeeded"
+        let calibrationErrorKey = windowType == "five_hour" ? "fiveHourCalibrationError" : "weeklyCalibrationError"
+
+        if case .string(let countdown)? = window["countdown"] {
+            if windowType == "five_hour" { fiveHourCountdown = countdown }
+            else { weeklyCountdown = countdown }
+        }
+
+        if case .string(let nextRun)? = window["next_run_at"] {
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: nextRun) {
+                let display = formatDateTime(date)
+                if windowType == "five_hour" { fiveHourNextRunText = display }
+                else { weeklyNextRunText = display }
+            }
+        }
+
+        if case .object(let result)? = window["last_result"] {
+            if case .string(let status)? = result["status"], status == "success" {
+                let model = (result["selected_model"]).flatMap {
+                    if case .string(let v) = $0 { return v }
+                    return nil
+                } ?? "auto"
+                let summary = (result["response_summary"]).flatMap {
+                    if case .string(let v) = $0 { return v }
+                    return nil
+                } ?? ""
+                let text = "✓ \(model)\(summary.isEmpty ? "" : " - \(summary)")"
+                if windowType == "five_hour" { fiveHourLastResultText = text }
+                else { weeklyLastResultText = text }
+            }
+        }
+
+        if case .object(let calibration)? = window["calibration_needed"] {
+            let error = (calibration["error_message"]).flatMap {
+                if case .string(let v) = $0 { return v }
+                return nil
+            } ?? ""
+            if windowType == "five_hour" {
+                fiveHourCalibrationNeeded = true
+                fiveHourCalibrationError = error
+            } else {
+                weeklyCalibrationNeeded = true
+                weeklyCalibrationError = error
+            }
+        } else {
+            if windowType == "five_hour" {
+                fiveHourCalibrationNeeded = false
+                fiveHourCalibrationError = ""
+            } else {
+                weeklyCalibrationNeeded = false
+                weeklyCalibrationError = ""
+            }
+        }
+    }
+
+    private func formatDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
     func parseConfig(_ value: JSONValue?) {
         guard case .object(let object) = value else { return }
         if case .string(let value)? = object["schedule_time"] { settings.scheduleTime = value }
@@ -281,6 +356,21 @@ final class AppModel: ObservableObject {
         if case .bool(let value)? = object["enabled"] { settings.enabled = value }
         if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
         if case .bool(let value)? = object["allow_catch_up"] { settings.catchUp = value }
+
+        // Parse window config
+        if case .object(let windows)? = object["windows"] {
+            if case .object(let fiveHour)? = windows["five_hour"] {
+                if case .bool(let value)? = fiveHour["enabled"] { settings.fiveHourEnabled = value }
+                if case .string(let value)? = fiveHour["anchor_iso"] { settings.fiveHourAnchorISO = value }
+                if case .number(let value)? = fiveHour["interval_minutes"] { settings.fiveHourIntervalMinutes = Int(value) }
+            }
+            if case .object(let weekly)? = windows["weekly"] {
+                if case .bool(let value)? = weekly["enabled"] { settings.weeklyEnabled = value }
+                if case .string(let value)? = weekly["anchor_iso"] { settings.weeklyAnchorISO = value }
+                if case .number(let value)? = weekly["interval_minutes"] { settings.weeklyIntervalMinutes = Int(value) }
+            }
+        }
+
         guard case .object(let telegram)? = object["telegram"] else { return }
         if case .bool(let value)? = telegram["enabled"] { settings.telegramEnabled = value }
         settings.telegramUserID = firstIDString(telegram["allowed_user_ids"])
