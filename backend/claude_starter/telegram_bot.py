@@ -4,7 +4,7 @@ import json
 import secrets
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .config import load_config, save_config
@@ -20,13 +20,18 @@ from .telegram_api import TelegramAPI
 HELP = """Claude Window Starter — Komut listesi
 
 Temel:
-/status — Mevcut durum
+/status — Mevcut durum + pencere bilgisi
 /run — Claude çalıştır (onay ister)
 /dryrun — Gerçek istek göndermeden kontrol
-/usage — Kullanım penceresi bilgisi
+/usage — Pencere durumu ve sonraki çalışma
 /last — Son çalışma detayları
 /logs — Son log kayıtları
 /help — Bu yardım menüsü
+
+Pencere Kalibrasyonu:
+/calibrate_5h HH:MM — 5 saatlik pencereyi bugünkü HH:MM'ye ayarla
+/calibrate_5h YYYY-MM-DD HH:MM — 5 saatlik pencereyi belirtilen tarihe ayarla
+/calibrate_weekly YYYY-MM-DD HH:MM — Haftalık pencereyi belirtilen tarihe ayarla
 
 Otomasyon:
 /automation_on — Otomasyonu etkinleştir
@@ -48,9 +53,8 @@ Model ve prompt:
 /setprompt <metin> — Prompt değiştir (onay ister)
 
 Zamanlama:
-/schedule — Sonraki otomatik çalışma zamanı
-/next — Sonraki planlı çalışma
-/settime <SS:DD> — Günlük çalışma saatini değiştir
+/schedule — Sonraki pencere çalışma zamanı
+/next — Sonraki planlı çalışma (5 saatlik pencere)
 /timezone — Mevcut zaman dilimi
 /settimezone <iana> — Zaman dilimini değiştir
 
@@ -294,11 +298,62 @@ class TelegramBot:
                 if command == "/timer"
                 else "Background service restarted."
             ), None
+        if command == "/calibrate_5h":
+            return self._calibrate_window("five_hour", argument, user_id, chat_id)
+        if command == "/calibrate_weekly":
+            return self._calibrate_window("weekly", argument, user_id, chat_id)
         if command == "/version":
             from . import __version__
 
             return _pretty({"application_version": __version__}), None
         raise AppError(ErrorCode.CONFIG_INVALID, "Unknown command; use /help")
+
+    def _calibrate_window(
+        self, window_type: str, argument: str, user_id: int, chat_id: int
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Parse calibration argument and run calibrate command."""
+        from zoneinfo import ZoneInfo
+
+        if not argument.strip():
+            raise AppError(ErrorCode.CONFIG_INVALID, f"Usage: /calibrate_{window_type.split('_')[0]} HH:MM or YYYY-MM-DD HH:MM")
+
+        parts = argument.strip().split()
+        user_tz = ZoneInfo(self.config.get("timezone", "UTC"))
+
+        try:
+            if len(parts) == 1:
+                # Format: HH:MM — use today's date
+                time_str = parts[0]
+                if not _is_valid_time(time_str):
+                    raise ValueError("Invalid time format")
+                today = datetime.now(tz=user_tz).date()
+                dt_local = datetime.combine(today, datetime.strptime(time_str, "%H:%M").time())
+                dt_with_tz = dt_local.replace(tzinfo=user_tz)
+            elif len(parts) == 2:
+                # Format: YYYY-MM-DD HH:MM
+                date_str, time_str = parts
+                if not _is_valid_datetime(f"{date_str} {time_str}"):
+                    raise ValueError("Invalid datetime format")
+                dt_local = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                dt_with_tz = dt_local.replace(tzinfo=user_tz)
+            else:
+                raise ValueError("Invalid format")
+
+            # Convert to UTC ISO format
+            dt_utc = dt_with_tz.astimezone(timezone.utc)
+            anchor_iso = dt_utc.isoformat()
+
+            # Call calibrate CLI command
+            _run_calibrate_cli(self.paths, window_type, anchor_iso)
+
+            # Get updated next_run_at
+            next_window = next_runs(self.paths, self.config)
+            next_at = next_window.get(window_type)
+            next_iso = next_at.isoformat() if next_at else "unknown"
+
+            return f"✓ {window_type} penceresi kalibre edildi.\nAnchor: {anchor_iso}\nSonraki çalışma: {next_iso}", None
+        except ValueError as exc:
+            raise AppError(ErrorCode.CONFIG_INVALID, f"Invalid time format: {str(exc)}")
 
     def _handle_callback(self, callback: dict[str, Any]) -> None:
         sender, message, data = callback.get("from"), callback.get("message"), callback.get("data")
@@ -417,6 +472,55 @@ class TelegramBot:
 
 def _pretty(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+
+
+def _is_valid_time(value: str) -> bool:
+    """Check if value is in HH:MM format."""
+    try:
+        datetime.strptime(value, "%H:%M")
+        return True
+    except ValueError:
+        return False
+
+
+def _is_valid_datetime(value: str) -> bool:
+    """Check if value is in YYYY-MM-DD HH:MM format."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d %H:%M")
+        return True
+    except ValueError:
+        return False
+
+
+def _run_calibrate_cli(paths: AppPaths, window_type: str, anchor_iso: str) -> None:
+    """Run the calibrate CLI command."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [
+                "python3",
+                "-m",
+                "claude_starter",
+                "--home",
+                str(paths.base),
+                "calibrate",
+                "--window-type",
+                window_type,
+                "--anchor",
+                anchor_iso,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            shell=False,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr or result.stdout or "Unknown error"
+            raise AppError(ErrorCode.CONFIG_INVALID, f"Calibrate failed: {stderr[:200]}")
+    except subprocess.TimeoutExpired as exc:
+        raise AppError(ErrorCode.CONFIG_INVALID, "Calibrate command timed out") from exc
 
 
 def _validate_time(value: str) -> None:
