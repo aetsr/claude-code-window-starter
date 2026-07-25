@@ -19,6 +19,12 @@ final class AppModel: ObservableObject {
     @Published var claudeLoginCommand = "claude auth login"
     @Published var claudeAuthHint = ""
     @Published var telegramPairCode = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
+    @Published var telegramBotRunning = false
+    @Published var telegramTokenConfigured = false
+    @Published var telegramUserList: [Int64] = []
+    @Published var telegramChatList: [Int64] = []
+    @Published var newTelegramUserID = ""
+    @Published var newTelegramChatID = ""
 
     // Window countdown and calibration
     @Published var fiveHourCountdown = "—"
@@ -42,6 +48,7 @@ final class AppModel: ObservableObject {
 
     init(settings: ClientSettings = SettingsStore.load()) {
         self.settings = settings
+        self.telegramTokenConfigured = KeychainStore.load(account: "telegram_token") != nil
     }
 
     var statusIcon: String {
@@ -62,8 +69,13 @@ final class AppModel: ObservableObject {
                     parseStatus(result.data)
                 } else if arguments.first == "config", arguments.dropFirst().first == "get" {
                     parseConfig(result.data)
+                    loadTelegramUsers()
                 } else if arguments.first == "run" {
                     parseRunResult(result.data)
+                    await refreshStatus(silent: true)
+                } else if arguments.first == "service", arguments.dropFirst().first == "telegram" {
+                    await refreshTelegramServiceStatus()
+                } else if arguments.first == "calibrate" {
                     await refreshStatus(silent: true)
                 }
             } catch {
@@ -106,47 +118,34 @@ final class AppModel: ObservableObject {
     }
 
     func saveConfiguration() {
-        let trimmedUserID = settings.telegramUserID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedChatID = settings.telegramChatID.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNotificationID = settings.notificationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let userID = Int64(trimmedUserID)
-        let chatID = Int64(trimmedChatID)
         let notificationID = Int64(trimmedNotificationID)
-        if settings.telegramEnabled && (userID == nil || chatID == nil) {
-            lastError = "Telegram etkinse izinli kullanıcı ve özel sohbet ID alanları sayısal olmalıdır."
-            return
-        }
         if !trimmedNotificationID.isEmpty && notificationID == nil {
             lastError = "Bildirim sohbet/kanal ID alanı sayısal olmalıdır."
             return
         }
         busy = true
         lastError = nil
+        // Parse comma-separated user/chat IDs for multi-user support
+        let userIDs: [Int64] = settings.telegramUserID
+            .split(separator: ",").compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+        let chatIDs: [Int64] = settings.telegramChatID
+            .split(separator: ",").compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
         let document: [String: Any] = [
             "enabled": settings.enabled,
             "background_enabled": settings.backgroundEnabled,
-            "schedule_time": settings.scheduleTime,
             "timezone": settings.timezone,
             "model": settings.model,
             "prompt": settings.prompt,
             "timeout_seconds": settings.timeout,
-            "allow_catch_up": settings.catchUp,
             "windows": [
-                "five_hour": [
-                    "enabled": settings.fiveHourEnabled,
-                    "anchor_iso": settings.fiveHourAnchorISO,
-                    "interval_minutes": settings.fiveHourIntervalMinutes,
-                ],
-                "weekly": [
-                    "enabled": settings.weeklyEnabled,
-                    "anchor_iso": settings.weeklyAnchorISO,
-                    "interval_minutes": settings.weeklyIntervalMinutes,
-                ],
+                "five_hour": ["enabled": settings.fiveHourEnabled],
+                "weekly": ["enabled": settings.weeklyEnabled],
             ],
             "telegram": [
                 "enabled": settings.telegramEnabled,
-                "allowed_user_ids": userID.map { [$0] } ?? [],
-                "allowed_chat_ids": chatID.map { [$0] } ?? [],
+                "allowed_user_ids": userIDs,
+                "allowed_chat_ids": chatIDs,
                 "notification_chat_id": settings.notificationIsChannel ? NSNull() : (notificationID.map { $0 as Any } ?? NSNull()),
                 "notification_channel_id": settings.notificationIsChannel ? (notificationID.map { $0 as Any } ?? NSNull()) : NSNull(),
             ],
@@ -185,10 +184,15 @@ final class AppModel: ObservableObject {
         do {
             try KeychainStore.save(telegramToken, account: "telegram_token")
             telegramToken = ""
+            telegramTokenConfigured = true
             statusText = "Telegram tokenı Keychain’e kaydedildi; değeri tekrar gösterilmeyecek."
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    func checkTelegramTokenPresence() {
+        telegramTokenConfigured = KeychainStore.load(account: "telegram_token") != nil
     }
 
     func telegramTest() {
@@ -248,9 +252,12 @@ final class AppModel: ObservableObject {
                       case .number(let chatID)? = object["chat_id"] else {
                     throw ProcessRunnerError.invalidOutput
                 }
-                settings.telegramUserID = String(Int64(userID))
-                settings.telegramChatID = String(Int64(chatID))
-                settings.notificationID = String(Int64(chatID))
+                // Append to existing lists (multi-user support)
+                let newUserID = String(Int64(userID))
+                let newChatID = String(Int64(chatID))
+                settings.telegramUserID = appendIDIfAbsent(newUserID, to: settings.telegramUserID)
+                settings.telegramChatID = appendIDIfAbsent(newChatID, to: settings.telegramChatID)
+                if settings.notificationID.isEmpty { settings.notificationID = newChatID }
                 settings.telegramEnabled = true
                 var parts = ["Telegram özel sohbeti eşleştirildi ve bot etkinleştirildi."]
                 if case .bool(let restarted)? = object["service_restarted"], !restarted {
@@ -260,10 +267,109 @@ final class AppModel: ObservableObject {
                 try SettingsStore.save(settings)
                 await refreshStatus(silent: true)
                 renewTelegramPairCode()
+                loadTelegramUsers()
             } catch {
                 lastError = error.localizedDescription
                 statusText = error.localizedDescription
             }
+        }
+    }
+
+    func refreshTelegramServiceStatus() async {
+        do {
+            _ = try await backend.command(arguments: ["service", "telegram", "status"])
+            telegramBotRunning = true
+        } catch {
+            telegramBotRunning = false
+        }
+    }
+
+    func loadTelegramUsers() {
+        Task {
+            do {
+                let result = try await backend.command(arguments: ["telegram-user", "list"])
+                if case .object(let data)? = result.data {
+                    telegramUserList = parseIDArray(data["allowed_user_ids"])
+                    telegramChatList = parseIDArray(data["allowed_chat_ids"])
+                    // Sync back to settings strings
+                    settings.telegramUserID = telegramUserList.map(String.init).joined(separator: ", ")
+                    settings.telegramChatID = telegramChatList.map(String.init).joined(separator: ", ")
+                }
+            } catch {}
+        }
+    }
+
+    func addTelegramUser() {
+        guard let uid = Int64(newTelegramUserID.trimmingCharacters(in: .whitespaces)) else {
+            lastError = "Geçerli bir sayısal kullanıcı ID girin."
+            return
+        }
+        newTelegramUserID = ""
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                let result = try await backend.command(arguments: ["telegram-user", "add", "--user-id", String(uid)])
+                if case .object(let data)? = result.data {
+                    telegramUserList = parseIDArray(data["allowed_user_ids"])
+                    settings.telegramUserID = telegramUserList.map(String.init).joined(separator: ", ")
+                }
+            } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    func removeTelegramUser(_ uid: Int64) {
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                let result = try await backend.command(arguments: ["telegram-user", "remove", "--user-id", String(uid)])
+                if case .object(let data)? = result.data {
+                    telegramUserList = parseIDArray(data["allowed_user_ids"])
+                    settings.telegramUserID = telegramUserList.map(String.init).joined(separator: ", ")
+                }
+            } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    func addTelegramChat() {
+        guard let cid = Int64(newTelegramChatID.trimmingCharacters(in: .whitespaces)) else {
+            lastError = "Geçerli bir sayısal sohbet ID girin."
+            return
+        }
+        newTelegramChatID = ""
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                let result = try await backend.command(arguments: ["telegram-user", "add", "--chat-id", String(cid)])
+                if case .object(let data)? = result.data {
+                    telegramChatList = parseIDArray(data["allowed_chat_ids"])
+                    settings.telegramChatID = telegramChatList.map(String.init).joined(separator: ", ")
+                }
+            } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    func removeTelegramChat(_ cid: Int64) {
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                let result = try await backend.command(arguments: ["telegram-user", "remove", "--chat-id", String(cid)])
+                if case .object(let data)? = result.data {
+                    telegramChatList = parseIDArray(data["allowed_chat_ids"])
+                    settings.telegramChatID = telegramChatList.map(String.init).joined(separator: ", ")
+                }
+            } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    private func parseIDArray(_ value: JSONValue?) -> [Int64] {
+        guard case .array(let arr)? = value else { return [] }
+        return arr.compactMap {
+            if case .number(let n) = $0 { return Int64(n) }
+            return nil
         }
     }
 
@@ -272,6 +378,7 @@ final class AppModel: ObservableObject {
         if case .bool(let value)? = object["enabled"] { settings.enabled = value }
         if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
         if case .bool(let value)? = object["telegram_enabled"] { settings.telegramEnabled = value }
+        if case .bool(let value)? = object["telegram_service_running"] { telegramBotRunning = value }
 
         // Parse window status
         if case .object(let windows)? = object["windows"] {
@@ -309,8 +416,10 @@ final class AppModel: ObservableObject {
             }()
             if windowType == "five_hour" {
                 fiveHourIsCalibrated = true
+                settings.fiveHourAnchorISO = anchorISO
             } else {
                 weeklyIsCalibrated = true
+                settings.weeklyAnchorISO = anchorISO
                 if let d = anchorDate { weeklyAnchorDate = d }
             }
         } else {
@@ -348,26 +457,27 @@ final class AppModel: ObservableObject {
             }
         }
 
-        if case .object(let calibration)? = window["calibration_needed"] {
-            let error = (calibration["error_message"]).flatMap {
+        let calibrationNeededFlag: Bool
+        let calibrationErrorMsg: String
+        if case .bool(let v)? = window["calibration_needed"] {
+            calibrationNeededFlag = v
+            calibrationErrorMsg = ""
+        } else if case .object(let calibration)? = window["calibration_needed"] {
+            calibrationNeededFlag = true
+            calibrationErrorMsg = (calibration["error_message"]).flatMap {
                 if case .string(let v) = $0 { return v }
                 return nil
             } ?? ""
-            if windowType == "five_hour" {
-                fiveHourCalibrationNeeded = true
-                fiveHourCalibrationError = error
-            } else {
-                weeklyCalibrationNeeded = true
-                weeklyCalibrationError = error
-            }
         } else {
-            if windowType == "five_hour" {
-                fiveHourCalibrationNeeded = false
-                fiveHourCalibrationError = ""
-            } else {
-                weeklyCalibrationNeeded = false
-                weeklyCalibrationError = ""
-            }
+            calibrationNeededFlag = false
+            calibrationErrorMsg = ""
+        }
+        if windowType == "five_hour" {
+            fiveHourCalibrationNeeded = calibrationNeededFlag
+            fiveHourCalibrationError = calibrationErrorMsg
+        } else {
+            weeklyCalibrationNeeded = calibrationNeededFlag
+            weeklyCalibrationError = calibrationErrorMsg
         }
     }
 
@@ -388,14 +498,12 @@ final class AppModel: ObservableObject {
 
     func parseConfig(_ value: JSONValue?) {
         guard case .object(let object) = value else { return }
-        if case .string(let value)? = object["schedule_time"] { settings.scheduleTime = value }
         if case .string(let value)? = object["timezone"] { settings.timezone = value }
         if case .string(let value)? = object["model"] { settings.model = value }
         if case .string(let value)? = object["prompt"] { settings.prompt = value }
         if case .number(let value)? = object["timeout_seconds"] { settings.timeout = Int(value) }
         if case .bool(let value)? = object["enabled"] { settings.enabled = value }
         if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
-        if case .bool(let value)? = object["allow_catch_up"] { settings.catchUp = value }
 
         // Parse window config
         if case .object(let windows)? = object["windows"] {
@@ -422,8 +530,12 @@ final class AppModel: ObservableObject {
 
         guard case .object(let telegram)? = object["telegram"] else { return }
         if case .bool(let value)? = telegram["enabled"] { settings.telegramEnabled = value }
-        settings.telegramUserID = firstIDString(telegram["allowed_user_ids"])
-        settings.telegramChatID = firstIDString(telegram["allowed_chat_ids"])
+        let userList = parseIDArray(telegram["allowed_user_ids"])
+        let chatList = parseIDArray(telegram["allowed_chat_ids"])
+        telegramUserList = userList
+        telegramChatList = chatList
+        settings.telegramUserID = userList.map(String.init).joined(separator: ", ")
+        settings.telegramChatID = chatList.map(String.init).joined(separator: ", ")
         if case .number(let value)? = telegram["notification_channel_id"] {
             settings.notificationIsChannel = true
             settings.notificationID = String(Int64(value))
@@ -496,13 +608,18 @@ final class AppModel: ObservableObject {
         return off
     }
 
-    private func firstIDString(_ value: JSONValue?) -> String {
-        guard case .array(let items) = value,
-              let first = items.first,
-              case .number(let number) = first else {
-            return ""
-        }
-        return String(Int64(number))
+    private func appendIDIfAbsent(_ id: String, to existing: String) -> String {
+        let ids = existing.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard !ids.contains(id) else { return existing }
+        return (ids + [id]).joined(separator: ", ")
+    }
+
+    private func allIDsString(_ value: JSONValue?) -> String {
+        guard case .array(let items) = value else { return "" }
+        return items.compactMap { item -> String? in
+            if case .number(let n) = item { return String(Int64(n)) }
+            return nil
+        }.joined(separator: ", ")
     }
 
     private func plainText(_ value: JSONValue, indent: String = "") -> String {

@@ -10,7 +10,7 @@ from typing import Any
 
 from .paths import AppPaths
 from .state import load_state
-from .windows import get_interval, next_window_after, windows_due as _windows_due
+from .windows import _parse_iso, get_interval, next_window_after, windows_due as _windows_due
 
 
 def windows_due(paths: AppPaths, config: dict[str, Any]) -> list[str]:
@@ -41,14 +41,14 @@ def next_runs(paths: AppPaths, config: dict[str, Any]) -> dict[str, datetime]:
         next_run = state.get(f"{wtype}_next_run_at")
         if next_run:
             try:
-                result[wtype] = datetime.fromisoformat(next_run)
+                result[wtype] = _parse_iso(next_run)
                 continue
             except ValueError:
                 pass
 
         # If no next_run stored, compute from anchor
         try:
-            anchor = datetime.fromisoformat(w["anchor_iso"]).astimezone(timezone.utc)
+            anchor = _parse_iso(w["anchor_iso"]).astimezone(timezone.utc)
             interval = get_interval(w)
             result[wtype] = next_window_after(anchor, interval, datetime.now(timezone.utc))
         except (ValueError, KeyError):

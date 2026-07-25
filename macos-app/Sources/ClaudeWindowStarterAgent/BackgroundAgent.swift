@@ -292,8 +292,9 @@ actor BackgroundAgent {
     private func acquireAssertion() {
         guard assertion == 0 else { return }
         let reason = "Claude Window Starter background automation"
+        // PreventSystemSleep keeps the system awake even with lid closed on AC power.
         let result = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+            kIOPMAssertionTypePreventSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
             reason as CFString,
             &assertion

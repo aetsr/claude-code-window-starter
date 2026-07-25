@@ -193,12 +193,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         values = telegram.get(field)
         if not isinstance(values, list) or any(type(item) is not int for item in values):
             raise AppError(ErrorCode.CONFIG_INVALID, f"{field} must contain numeric IDs")
-    if telegram.get("enabled") and (
-        not telegram.get("allowed_user_ids") or not telegram.get("allowed_chat_ids")
-    ):
-        raise AppError(
-            ErrorCode.CONFIG_INVALID, "Telegram requires user and private-chat allowlists"
-        )
+    # Empty allowlists are valid — bot will reject all unauthorized messages.
     for field in ("notification_chat_id", "notification_channel_id"):
         value = telegram.get(field)
         if value is not None and type(value) is not int:

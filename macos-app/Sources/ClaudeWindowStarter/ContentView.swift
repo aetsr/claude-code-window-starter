@@ -32,6 +32,11 @@ struct ContentView: View {
             guard !model.isSavingBackground else { return }
             model.saveBackgroundImmediately()
         }
+        .onChange(of: model.settings.enabled) { _ in model.saveConfiguration() }
+        .onChange(of: model.settings.fiveHourEnabled) { _ in model.saveConfiguration() }
+        .onChange(of: model.settings.weeklyEnabled) { _ in model.saveConfiguration() }
+        .onChange(of: model.settings.telegramEnabled) { _ in model.saveConfiguration() }
+        .onChange(of: model.settings.model) { _ in model.saveConfiguration() }
     }
 
     // MARK: – Header
@@ -74,8 +79,8 @@ struct ContentView: View {
                            color: model.powerAssertion ? .blue : .secondary)
                 StatusPill(title: "Otomasyon", value: model.settings.enabled ? "Açık" : "Kapalı",
                            color: model.settings.enabled ? .green : .secondary)
-                StatusPill(title: "Telegram", value: model.settings.telegramEnabled ? "Açık" : "Kapalı",
-                           color: model.settings.telegramEnabled ? .green : .secondary)
+                StatusPill(title: "Telegram", value: model.telegramBotRunning ? "Çalışıyor" : (model.settings.telegramEnabled ? "Bekliyor" : "Kapalı"),
+                           color: model.telegramBotRunning ? .green : (model.settings.telegramEnabled ? .orange : .secondary))
                 if model.automationBlocked {
                     StatusPill(title: "Müdahale gerekli", value: "!", color: .red)
                 }
@@ -215,6 +220,9 @@ struct ContentView: View {
                         Button("Şimdi çalıştır") { model.perform(["run", "--trigger", "macos_ui"]) }
                             .disabled(model.busy)
                         Spacer()
+                        Button("Kaydet") { model.saveConfiguration() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.busy)
                     }
                 }
             }
@@ -227,98 +235,248 @@ struct ContentView: View {
     private var telegramTab: some View {
         ScrollView {
             VStack(spacing: 12) {
-                // Bot config
+                // ── Bot Status & Enable ───────────────────────────────────────
                 settingsCard {
-                    HStack {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(model.telegramBotRunning ? Color.green.opacity(0.15) : Color.secondary.opacity(0.1))
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "paperplane.fill")
+                                .foregroundStyle(model.telegramBotRunning ? .green : .secondary)
+                                .font(.system(size: 18))
+                        }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Telegram Botu").font(.subheadline).fontWeight(.medium)
-                            Text("Kapak kapansa bile Telegram üzerinden tam kontrol")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text("Telegram Botu").font(.subheadline).fontWeight(.semibold)
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(model.telegramBotRunning ? Color.green : Color.secondary)
+                                    .frame(width: 6, height: 6)
+                                Text(model.telegramBotRunning ? "Çalışıyor" : "Durdu")
+                                    .font(.caption)
+                                    .foregroundStyle(model.telegramBotRunning ? .green : .secondary)
+                            }
                         }
                         Spacer()
                         Toggle("", isOn: $model.settings.telegramEnabled).labelsHidden()
                     }
-                }
-
-                settingsCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Bot Token", systemImage: "key.fill").font(.subheadline).fontWeight(.medium)
-                        HStack(spacing: 8) {
-                            SecureField("BotFather'dan aldığınız token", text: $model.telegramToken)
-                                .textFieldStyle(.roundedBorder)
-                            Button("Kaydet") { model.transferTelegramCredential() }
-                                .disabled(model.telegramToken.isEmpty)
-                        }
-                        Text("Token bir kez kaydedilir, ekranda gösterilmez.")
+                    if model.settings.telegramEnabled {
+                        Divider()
+                        Text("Kapak kapandığında uyku önleme açıksa bot çalışmaya devam eder.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
+                // ── Service Controls ─────────────────────────────────────────
                 settingsCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Erişim Kontrolü", systemImage: "person.badge.shield.checkmark.fill")
-                            .font(.subheadline).fontWeight(.medium)
-                        HStack {
-                            Text("Kullanıcı ID").font(.caption).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
-                            TextField("Sayısal ID", text: $model.settings.telegramUserID)
-                                .textFieldStyle(.roundedBorder)
+                    HStack(spacing: 8) {
+                        Button {
+                            model.perform(["service", "telegram", "start"])
+                        } label: {
+                            Label("Başlat", systemImage: "play.fill")
+                                .frame(maxWidth: .infinity)
                         }
-                        HStack {
-                            Text("Özel Sohbet ID").font(.caption).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
-                            TextField("Sayısal ID", text: $model.settings.telegramChatID)
-                                .textFieldStyle(.roundedBorder)
+                        .disabled(model.busy || model.telegramBotRunning)
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            model.perform(["service", "telegram", "stop"])
+                        } label: {
+                            Label("Durdur", systemImage: "stop.fill")
+                                .frame(maxWidth: .infinity)
                         }
-                        HStack {
-                            Text("Bildirim Hedefi").font(.caption).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
-                            TextField("Sohbet veya kanal ID", text: $model.settings.notificationID)
-                                .textFieldStyle(.roundedBorder)
+                        .disabled(model.busy || !model.telegramBotRunning)
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+
+                        Button {
+                            model.perform(["service", "telegram", "restart"])
+                        } label: {
+                            Label("Yeniden başlat", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
                         }
-                        Toggle("Bildirim hedefi kanal", isOn: $model.settings.notificationIsChannel)
-                            .font(.subheadline)
+                        .disabled(model.busy)
+                        .buttonStyle(.bordered)
+                    }
+                    Divider()
+                    HStack {
+                        Button("Bağlantıyı test et") { model.telegramTest() }
+                            .disabled(model.busy)
+                        Spacer()
                     }
                 }
 
+                // ── Bot Token ────────────────────────────────────────────────
                 settingsCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Güvenli Eşleştirme", systemImage: "link.badge.plus")
-                            .font(.subheadline).fontWeight(.medium)
-                        Text("Bota aşağıdaki komutu gönderin:")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("/pair \(model.telegramPairCode)")
-                            .font(.system(.body, design: .monospaced))
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                            .textSelection(.enabled)
-                        HStack(spacing: 8) {
-                            Button("Eşleştir ve etkinleştir") { model.pairTelegram() }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(model.busy)
-                            Button("Yeni kod") { model.renewTelegramPairCode() }
+                    HStack {
+                        Label("Bot Token", systemImage: "key.fill")
+                            .font(.subheadline).fontWeight(.semibold)
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(model.telegramTokenConfigured ? Color.green : Color.orange)
+                                .frame(width: 7, height: 7)
+                            Text(model.telegramTokenConfigured ? "Kayıtlı" : "Kayıtlı değil")
+                                .font(.caption2)
+                                .foregroundStyle(model.telegramTokenConfigured ? .green : .orange)
                         }
-                        Text("Eşleştirme sonrası kullanıcı ve sohbet ID'leri otomatik doldurulur.")
+                    }
+                    HStack(spacing: 8) {
+                        SecureField("BotFather'dan aldığınız token", text: $model.telegramToken)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Kaydet") { model.transferTelegramCredential() }
+                            .disabled(model.telegramToken.isEmpty)
+                            .buttonStyle(.borderedProminent)
+                    }
+                    if !model.telegramTokenConfigured {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption)
+                            Text("Token olmadan bot başlatılamaz ve eşleştirme yapılamaz.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    } else {
+                        Text("Token Keychain'e şifreli kaydedildi.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
+                // ── Pairing ──────────────────────────────────────────────────
                 settingsCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Bot Servisi", systemImage: "gearshape.2.fill")
-                            .font(.subheadline).fontWeight(.medium)
-                        HStack(spacing: 8) {
-                            Button("Başlat") { model.perform(["service", "telegram", "start"]) }
-                                .disabled(model.busy)
-                            Button("Durdur") { model.perform(["service", "telegram", "stop"]) }
-                                .disabled(model.busy)
-                            Button("Yeniden başlat") { model.perform(["service", "telegram", "restart"]) }
-                                .disabled(model.busy)
-                            Spacer()
-                            Button("Bağlantıyı test et") { model.telegramTest() }
-                                .disabled(model.busy)
-                        }
-                        Text("Kapak kapandığında uyku önleme açıksa bot çalışmaya devam eder. Tüm komutlar (/run, /status, /calibrate_5h, /calibrate_weekly) Telegram üzerinden kullanılabilir.")
-                            .font(.caption).foregroundStyle(.secondary)
+                    Label("Güvenli Eşleştirme", systemImage: "link.badge.plus")
+                        .font(.subheadline).fontWeight(.semibold)
+                    Text("Bota bu komutu gönderin:").font(.caption).foregroundStyle(.secondary)
+                    Text("/pair \(model.telegramPairCode)")
+                        .font(.system(.body, design: .monospaced))
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                        .textSelection(.enabled)
+                    HStack(spacing: 8) {
+                        Button("Eşleştir ve etkinleştir") { model.pairTelegram() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.busy)
+                        Button("Yeni kod") { model.renewTelegramPairCode() }
                     }
+                    Text("Eşleştirme tamamlandığında kullanıcı ve sohbet ID'leri otomatik eklenir.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                // ── User Management ──────────────────────────────────────────
+                settingsCard {
+                    HStack {
+                        Label("Yetkili Kullanıcılar", systemImage: "person.2.fill")
+                            .font(.subheadline).fontWeight(.semibold)
+                        Spacer()
+                        Button { model.loadTelegramUsers() } label: {
+                            Image(systemName: "arrow.clockwise").font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    if model.telegramUserList.isEmpty {
+                        Text("Henüz kullanıcı eklenmemiş")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 4)
+                    } else {
+                        VStack(spacing: 4) {
+                            ForEach(model.telegramUserList, id: \.self) { uid in
+                                HStack {
+                                    Image(systemName: "person.fill").foregroundStyle(.blue).font(.caption)
+                                    Text(String(uid))
+                                        .font(.system(.body, design: .monospaced))
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Button {
+                                        model.removeTelegramUser(uid)
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(model.busy)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+                    }
+
+                    Divider()
+                    HStack(spacing: 8) {
+                        TextField("Kullanıcı ID ekle", text: $model.newTelegramUserID)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            model.addTelegramUser()
+                        } label: {
+                            Image(systemName: "plus.circle.fill").foregroundStyle(.green)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.busy || model.newTelegramUserID.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+
+                // ── Chat Management ──────────────────────────────────────────
+                settingsCard {
+                    Label("Yetkili Sohbetler", systemImage: "bubble.left.and.bubble.right.fill")
+                        .font(.subheadline).fontWeight(.semibold)
+
+                    if model.telegramChatList.isEmpty {
+                        Text("Henüz sohbet eklenmemiş")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 4)
+                    } else {
+                        VStack(spacing: 4) {
+                            ForEach(model.telegramChatList, id: \.self) { cid in
+                                HStack {
+                                    Image(systemName: "bubble.left.fill").foregroundStyle(.teal).font(.caption)
+                                    Text(String(cid))
+                                        .font(.system(.body, design: .monospaced))
+                                    Spacer()
+                                    Button {
+                                        model.removeTelegramChat(cid)
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(model.busy)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+                    }
+
+                    Divider()
+                    HStack(spacing: 8) {
+                        TextField("Sohbet ID ekle", text: $model.newTelegramChatID)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            model.addTelegramChat()
+                        } label: {
+                            Image(systemName: "plus.circle.fill").foregroundStyle(.green)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.busy || model.newTelegramChatID.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+
+                // ── Notification Settings ────────────────────────────────────
+                settingsCard {
+                    Label("Bildirim Ayarları", systemImage: "bell.fill")
+                        .font(.subheadline).fontWeight(.semibold)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Bildirim Hedefi").font(.caption).foregroundStyle(.secondary)
+                        TextField("Sohbet veya kanal ID", text: $model.settings.notificationID)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Toggle("Bildirim hedefi kanal", isOn: $model.settings.notificationIsChannel)
+                        .font(.subheadline)
+                    Text("Bildirimler bu hedefe gönderilir (sonuç, hata, kalibrasyon uyarıları).")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -345,10 +503,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button("Durum") { model.perform(["status"]) }
-                .disabled(model.busy)
-            Button("Ayarları kaydet") { model.saveConfiguration() }
-                .buttonStyle(.borderedProminent)
+            Button("Yenile") { model.perform(["status"]) }
                 .disabled(model.busy)
         }
     }

@@ -90,6 +90,10 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_pair = sub.add_parser("telegram-pair")
     telegram_pair.add_argument("--code", required=True)
     telegram_pair.add_argument("--token-stdin", action="store_true")
+    telegram_user = sub.add_parser("telegram-user")
+    telegram_user.add_argument("action", choices=["list", "add", "remove"])
+    telegram_user.add_argument("--user-id", type=int, default=None)
+    telegram_user.add_argument("--chat-id", type=int, default=None)
 
     releases = sub.add_parser("releases")
     releases.add_argument("--limit", type=int, default=20)
@@ -127,11 +131,20 @@ def _status(paths: AppPaths) -> dict[str, Any]:
             "calibration_needed": state.get(f"{wtype}_calibration_needed"),
         }
 
+    # Check whether the Telegram LaunchAgent is currently running
+    telegram_running = False
+    try:
+        _service_action("telegram", "status")
+        telegram_running = True
+    except AppError:
+        telegram_running = False
+
     return {
         "enabled": config["enabled"],
         "background_enabled": config["background_enabled"],
         "timezone": config["timezone"],
         "telegram_enabled": config["telegram"]["enabled"],
+        "telegram_service_running": telegram_running,
         "windows": windows_status,
         "last_run": state.get("last_run"),
         "health": health_report(paths),
@@ -262,9 +275,47 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
     if command == "schedule":
         config = load_config(paths, create=True)
         if args.network_state == "offline":
+            def _mark_offline(state: dict[str, Any]) -> None:
+                state["network_went_offline_at"] = datetime.now(timezone.utc).isoformat()
+            update_state(paths, _mark_offline)
             return "connectivity_recorded", {"online": False}
         if args.network_state == "online":
-            return "connectivity_recorded", {"online": True}
+            state = load_state(paths)
+            offline_at_str = state.get("network_went_offline_at")
+            missed: list[str] = []
+            now = datetime.now(timezone.utc)
+            if offline_at_str:
+                try:
+                    offline_at = _parse_iso(offline_at_str)
+                    for wtype in ("five_hour", "weekly"):
+                        w = config.get("windows", {}).get(wtype, {})
+                        if not w.get("enabled") or not w.get("anchor_iso"):
+                            continue
+                        next_run_str = state.get(f"{wtype}_next_run_at")
+                        if next_run_str:
+                            try:
+                                next_run_dt = _parse_iso(next_run_str)
+                                if offline_at <= next_run_dt <= now:
+                                    missed.append(wtype)
+                            except ValueError:
+                                pass
+                except (ValueError, KeyError):
+                    pass
+            def _clear_offline(state: dict[str, Any]) -> None:
+                state.pop("network_went_offline_at", None)
+                for wtype in missed:
+                    state[f"{wtype}_calibration_needed"] = True
+            update_state(paths, _clear_offline)
+            if missed:
+                window_names = {"five_hour": "5 saatlik", "weekly": "haftalık"}
+                missed_str = ", ".join(window_names.get(w, w) for w in missed)
+                msg = f"🔌 İnternet bağlantısı yeniden kuruldu. Çevrimdışıyken şu pencereler kaçırıldı: {missed_str}. Lütfen kalibre edin."
+                try:
+                    notify(paths, msg)
+                except Exception:
+                    pass
+                _send_mac_notification("Claude Window Starter", msg)
+            return "connectivity_recorded", {"online": True, "missed_windows": missed}
         # Return next scheduled window runs
         next_window_runs = next_runs(paths, config)
         return "success", {
@@ -299,8 +350,12 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         user_id, chat_id, next_offset = _find_pairing(updates, code)
         api.send_message(chat_id, "Claude Window Starter eşleştirmesi tamamlandı.")
         config = load_config(paths, create=True)
-        config["telegram"]["allowed_user_ids"] = [user_id]
-        config["telegram"]["allowed_chat_ids"] = [chat_id]
+        uids = config["telegram"].setdefault("allowed_user_ids", [])
+        if user_id not in uids:
+            uids.append(user_id)
+        cids = config["telegram"].setdefault("allowed_chat_ids", [])
+        if chat_id not in cids:
+            cids.append(chat_id)
         config["telegram"]["notification_chat_id"] = chat_id
         config["telegram"]["notification_channel_id"] = None
         config["telegram"]["enabled"] = True
@@ -321,6 +376,44 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             "message_sent": True,
             "service_restarted": service_restarted,
         }
+    if command == "telegram-user":
+        config = load_config(paths, create=True)
+        action = args.action
+        if action == "list":
+            return "success", {
+                "allowed_user_ids": config["telegram"].get("allowed_user_ids", []),
+                "allowed_chat_ids": config["telegram"].get("allowed_chat_ids", []),
+            }
+        if action == "add":
+            if args.user_id is not None:
+                ids = config["telegram"].setdefault("allowed_user_ids", [])
+                if args.user_id not in ids:
+                    ids.append(args.user_id)
+            if args.chat_id is not None:
+                ids = config["telegram"].setdefault("allowed_chat_ids", [])
+                if args.chat_id not in ids:
+                    ids.append(args.chat_id)
+            save_config(paths, config)
+            return "success", {
+                "allowed_user_ids": config["telegram"]["allowed_user_ids"],
+                "allowed_chat_ids": config["telegram"]["allowed_chat_ids"],
+            }
+        if action == "remove":
+            if args.user_id is not None:
+                config["telegram"]["allowed_user_ids"] = [
+                    uid for uid in config["telegram"].get("allowed_user_ids", [])
+                    if uid != args.user_id
+                ]
+            if args.chat_id is not None:
+                config["telegram"]["allowed_chat_ids"] = [
+                    cid for cid in config["telegram"].get("allowed_chat_ids", [])
+                    if cid != args.chat_id
+                ]
+            save_config(paths, config)
+            return "success", {
+                "allowed_user_ids": config["telegram"]["allowed_user_ids"],
+                "allowed_chat_ids": config["telegram"]["allowed_chat_ids"],
+            }
     if command == "releases":
         from .releases import ReleaseManager
 
@@ -469,6 +562,20 @@ def _exit_code(code: ErrorCode) -> int:
     }:
         return 7
     return 4
+
+
+def _send_mac_notification(title: str, body: str) -> None:
+    """Send a macOS user notification via osascript (best-effort)."""
+    import subprocess as _sp
+    safe_title = title.replace('"', '\\"')
+    safe_body = body.replace('"', '\\"').replace("\n", " ")[:200]
+    try:
+        _sp.run(
+            ["osascript", "-e", f'display notification "{safe_body}" with title "{safe_title}"'],
+            timeout=5, check=False, capture_output=True,
+        )
+    except Exception:
+        pass
 
 
 def _service_action(target: str, action: str) -> dict[str, Any]:

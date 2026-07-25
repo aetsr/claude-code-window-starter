@@ -17,52 +17,36 @@ from .scheduler import next_runs
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 
-HELP = """Claude Window Starter — Komut listesi
+HELP = """🤖 Claude Window Starter
 
-Temel:
-/status — Mevcut durum + pencere bilgisi
-/run — Claude çalıştır (onay ister)
-/dryrun — Gerçek istek göndermeden kontrol
-/usage — Pencere durumu ve sonraki çalışma
-/last — Son çalışma detayları
-/logs — Son log kayıtları
-/help — Bu yardım menüsü
-
-Pencere Kalibrasyonu:
-/calibrate_5h HH:MM — 5 saatlik pencereyi bugünkü HH:MM'ye ayarla
-/calibrate_5h YYYY-MM-DD HH:MM — 5 saatlik pencereyi belirtilen tarihe ayarla
-/calibrate_weekly YYYY-MM-DD HH:MM — Haftalık pencereyi belirtilen tarihe ayarla
-
-Otomasyon:
-/automation_on — Otomasyonu etkinleştir
-/automation_off — Otomasyonu devre dışı bırak
-/background_on — Arka plan uyku engelini etkinleştir
-/background_off — Arka plan uyku engelini kapat
-/sleep_on — Uyku engellemeyi etkinleştir
-/sleep_off — Uyku engellemeyi kapat
-
-Servis:
-/start — Arka plan servisini başlat
-/stop — Arka plan servisini durdur
-/restart — Arka plan servisini yeniden başlat
-
-Model ve prompt:
-/model — Mevcut modeli göster
-/setmodel <auto|haiku|sonnet|opus> — Model değiştir
-/prompt — Mevcut promptu göster
-/setprompt <metin> — Prompt değiştir (onay ister)
-
-Zamanlama:
-/schedule — Sonraki pencere çalışma zamanı
-/next — Sonraki planlı çalışma (5 saatlik pencere)
-/timezone — Mevcut zaman dilimi
-/settimezone <iana> — Zaman dilimini değiştir
-
-Bakım:
+📊 Durum
+/status — Sistem durumu ve pencere bilgisi
+/usage — Sonraki çalışma zamanları
+/last — Son çalışma detayı
 /health — Sağlık kontrolü
-/diagnose — Teşhis raporu
-/maintenance — Kapsamlı durum ve sağlık raporu
-/version — Uygulama sürümü"""
+/logs — Son kayıtlar
+
+⚡ Otomasyon
+/run — Claude çalıştır (onay ister)
+/automation_on / /automation_off — Otomasyonu aç/kapat
+/sleep_on / /sleep_off — Uyku engellemeyi aç/kapat
+
+🗓 Kalibrasyon
+/calibrate_5h HH:MM — 5 saatlik pencereyi ayarla
+/calibrate_5h YYYY-MM-DD HH:MM
+/calibrate_weekly YYYY-MM-DD HH:MM
+
+⚙️ Ayarlar
+/setmodel <auto|haiku|sonnet|opus>
+/setprompt <metin>
+/settimezone <iana>
+
+👥 Kullanıcı Yönetimi
+/users — Yetkili kullanıcıları listele
+/adduser <id> — Kullanıcı ekle
+/removeuser <id> — Kullanıcı kaldır
+
+/help — Bu menü"""
 
 
 class TelegramBot:
@@ -78,8 +62,8 @@ class TelegramBot:
         if self.telegram["commands_in_private_chat_only"] and chat_type != "private":
             return False
         if chat_type == "private":
-            allowed_chats = self.telegram["allowed_chat_ids"]
-            return not allowed_chats or chat_id in allowed_chats
+            # Private chat is always 1:1 between user and bot; user_id check is sufficient.
+            return True
         return chat_id in self.telegram["allowed_chat_ids"]
 
     def _rate_allowed(self, user_id: int) -> bool:
@@ -165,14 +149,29 @@ class TelegramBot:
         if command == "/help":
             return HELP, None
         if command == "/status":
-            return _pretty(
-                {
-                    "enabled": self.config["enabled"],
-                    "background_enabled": self.config["background_enabled"],
-                    "timezone": self.config["timezone"],
-                    "last_run": state.get("last_run"),
-                    "health": health_report(self.paths),
-                }
+            enabled = "✅ Açık" if self.config["enabled"] else "❌ Kapalı"
+            bg = "✅ Açık" if self.config["background_enabled"] else "❌ Kapalı"
+            tz = self.config["timezone"]
+            health = health_report(self.paths)
+            ok = health.get("ok", False)
+            health_str = "✅ Sağlıklı" if ok else "⚠️ Sorun var"
+            last = state.get("last_run")
+            last_str = ""
+            if isinstance(last, dict):
+                last_str = f"\n🕐 Son çalışma: {last.get('trigger_time','?')[:16]} — {last.get('status','?')}"
+            next_windows = next_runs(self.paths, self.config)
+            window_lines = []
+            for wtype, dt in next_windows.items():
+                label = "5 saatlik" if wtype == "five_hour" else "Haftalık"
+                window_lines.append(f"  • {label}: {dt.strftime('%d.%m.%Y %H:%M')} UTC")
+            windows_str = "\n".join(window_lines) if window_lines else "  • Pencere tanımlı değil"
+            return (
+                f"📊 *Sistem Durumu*\n"
+                f"Otomasyon: {enabled}\n"
+                f"Uyku önleme: {bg}\n"
+                f"Zaman dilimi: {tz}\n"
+                f"Sağlık: {health_str}\n"
+                f"Sonraki çalışmalar:\n{windows_str}{last_str}"
             ), None
         if command == "/start":
             _service_action("background", "start")
@@ -208,35 +207,51 @@ class TelegramBot:
             save_config(self.paths, self.config)
             return "Background sleep-prevention mode disabled.", None
         if command == "/usage":
-            # Show window status instead of old usage_window
             next_window = next_runs(self.paths, self.config)
-            return _pretty(
-                {
-                    "five_hour_window": next_window.get("five_hour"),
-                    "weekly_window": next_window.get("weekly"),
-                    "last_run": state.get("last_run"),
-                }
-            ), None
+            lines = ["📅 *Pencere Durumu*"]
+            for wtype, dt in next_window.items():
+                label = "5 saatlik" if wtype == "five_hour" else "Haftalık"
+                lines.append(f"  • {label}: {dt.strftime('%d.%m.%Y %H:%M')} UTC")
+            if not next_window:
+                lines.append("  • Pencere tanımlı değil")
+            last = state.get("last_run")
+            if isinstance(last, dict):
+                lines.append(f"\n🕐 Son çalışma: {last.get('trigger_time','?')[:16]} — {last.get('status','?')}")
+            return "\n".join(lines), None
         if command == "/maintenance":
-            return _pretty(
-                {
-                    "health": health_report(self.paths),
-                    "diagnose": diagnose(self.paths),
-                }
-            ), None
+            health = health_report(self.paths)
+            diag = diagnose(self.paths)
+            ok = "✅ Sağlıklı" if health.get("ok") else "⚠️ Sorun var"
+            issues = [k for k, v in health.get("checks", {}).items() if isinstance(v, dict) and not v.get("ok", True)]
+            issues_str = ", ".join(issues) if issues else "—"
+            return f"🔧 *Bakım Raporu*\nSağlık: {ok}\nSorunlar: {issues_str}", None
         if command == "/dryrun":
             _start_local_job("dry")
-            return "Dry-run started; no Claude request will be sent.", None
+            return "🧪 Kuru çalışma başlatıldı — Claude'a gerçek istek gönderilmeyecek.", None
         if command == "/diagnose":
-            return _pretty(diagnose(self.paths)), None
+            diag = diagnose(self.paths)
+            lines = ["🔍 *Teşhis*"]
+            for k, v in diag.items():
+                lines.append(f"  • {k}: {v}")
+            return "\n".join(lines[:20]), None
         if command == "/health":
-            return _pretty(health_report(self.paths)), None
+            health = health_report(self.paths)
+            ok = "✅ Sağlıklı" if health.get("ok") else "⚠️ Sorun var"
+            lines = [f"💚 Sağlık: {ok}"]
+            for k, v in health.get("checks", {}).items():
+                if isinstance(v, dict):
+                    status = "✅" if v.get("ok", False) else "❌"
+                    lines.append(f"  {status} {k}")
+            return "\n".join(lines), None
         if command == "/schedule":
             next_window = next_runs(self.paths, self.config)
-            five_hour = next_window.get("five_hour")
-            if five_hour:
-                return f"Next five-hour window: {five_hour.isoformat()}", None
-            return "No windows scheduled", None
+            if not next_window:
+                return "📅 Pencere tanımlı değil", None
+            lines = ["📅 *Sonraki Çalışmalar*"]
+            for wtype, dt in next_window.items():
+                label = "5 saatlik" if wtype == "five_hour" else "Haftalık"
+                lines.append(f"  • {label}: {dt.strftime('%d.%m.%Y %H:%M')} UTC")
+            return "\n".join(lines), None
         if command == "/timezone":
             return str(self.config["timezone"]), None
         if command == "/settimezone":
@@ -265,12 +280,22 @@ class TelegramBot:
             )
         if command == "/next":
             next_window = next_runs(self.paths, self.config)
-            five_hour = next_window.get("five_hour")
-            if five_hour:
-                return f"Next run: {five_hour.isoformat()}", None
-            return "No windows scheduled", None
+            if not next_window:
+                return "📅 Zamanlanmış pencere yok", None
+            lines = ["📅 *Sonraki Çalışmalar*"]
+            for wtype, dt in next_window.items():
+                label = "5 saatlik" if wtype == "five_hour" else "Haftalık"
+                lines.append(f"  • {label}: {dt.strftime('%d.%m.%Y %H:%M')} UTC")
+            return "\n".join(lines), None
         if command == "/last":
-            return _pretty(state.get("last_run")), None
+            last = state.get("last_run")
+            if not isinstance(last, dict):
+                return "ℹ️ Henüz çalışma yok", None
+            status_icon = "✅" if last.get("status") == "success" else "❌"
+            model = last.get("selected_model", "?")
+            trigger = last.get("trigger_source", "?")
+            time_str = str(last.get("trigger_time", "?"))[:16]
+            return f"{status_icon} *Son Çalışma*\nZaman: {time_str}\nModel: {model}\nTetikleyici: {trigger}", None
         if command == "/logs":
             return "\n".join(tail_sanitized(self.paths.log_file, 15)) or "No logs.", None
         if command == "/model":
@@ -292,12 +317,60 @@ class TelegramBot:
                 user_id, chat_id, "setprompt", argument
             )
         if command in {"/timer", "/restarttimer"}:
-            result = _service_action("background", "status" if command == "/timer" else "restart")
-            return (
-                json.dumps(result, ensure_ascii=False)
-                if command == "/timer"
-                else "Background service restarted."
-            ), None
+            if command == "/restarttimer":
+                _service_action("background", "restart")
+                return "♻️ Arka plan servisi yeniden başlatıldı.", None
+            try:
+                _service_action("background", "status")
+                return "✅ Arka plan servisi çalışıyor.", None
+            except AppError:
+                return "❌ Arka plan servisi çalışmıyor.", None
+        if command == "/users":
+            uids = self.telegram.get("allowed_user_ids", [])
+            cids = self.telegram.get("allowed_chat_ids", [])
+            user_lines = "\n".join(f"  • {u}" for u in uids) if uids else "  • Yok"
+            chat_lines = "\n".join(f"  • {c}" for c in cids) if cids else "  • Yok"
+            return f"👥 *Yetkili Kullanıcılar*\n{user_lines}\n\n💬 *Yetkili Sohbetler*\n{chat_lines}", None
+        if command == "/adduser":
+            if not argument.strip().lstrip("-").isdigit():
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /adduser <numeric_user_id>")
+            uid = int(argument.strip())
+            ids = self.config["telegram"].setdefault("allowed_user_ids", [])
+            if uid not in ids:
+                ids.append(uid)
+                save_config(self.paths, self.config)
+                return f"User {uid} added.", None
+            return f"User {uid} already authorized.", None
+        if command == "/removeuser":
+            if not argument.strip().lstrip("-").isdigit():
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /removeuser <numeric_user_id>")
+            uid = int(argument.strip())
+            ids = self.config["telegram"].get("allowed_user_ids", [])
+            if uid in ids:
+                self.config["telegram"]["allowed_user_ids"] = [x for x in ids if x != uid]
+                save_config(self.paths, self.config)
+                return f"User {uid} removed.", None
+            return f"User {uid} was not authorized.", None
+        if command == "/addchat":
+            if not argument.strip().lstrip("-").isdigit():
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /addchat <numeric_chat_id>")
+            cid = int(argument.strip())
+            ids = self.config["telegram"].setdefault("allowed_chat_ids", [])
+            if cid not in ids:
+                ids.append(cid)
+                save_config(self.paths, self.config)
+                return f"Chat {cid} added.", None
+            return f"Chat {cid} already authorized.", None
+        if command == "/removechat":
+            if not argument.strip().lstrip("-").isdigit():
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /removechat <numeric_chat_id>")
+            cid = int(argument.strip())
+            ids = self.config["telegram"].get("allowed_chat_ids", [])
+            if cid in ids:
+                self.config["telegram"]["allowed_chat_ids"] = [x for x in ids if x != cid]
+                save_config(self.paths, self.config)
+                return f"Chat {cid} removed.", None
+            return f"Chat {cid} was not authorized.", None
         if command == "/calibrate_5h":
             return self._calibrate_window("five_hour", argument, user_id, chat_id)
         if command == "/calibrate_weekly":
