@@ -1,10 +1,10 @@
+"""Claude process invocation and capabilities discovery."""
+
 from __future__ import annotations
 
 import json
 import os
 import platform
-import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -89,105 +89,108 @@ def _contains_key(value: Any, target: str) -> bool:
 
 
 def prohibited_credentials() -> list[str]:
-    found = sorted(name for name in PROHIBITED_ENV if os.environ.get(name))
+    """Check for prohibited API credentials in environment."""
+    found = []
+    for key in PROHIBITED_ENV:
+        if os.environ.get(key):
+            found.append(key)
     if _settings_use_api_helper():
-        found.append("apiKeyHelper")
+        found.append("settings.json:apiKeyHelper")
     return found
 
 
 def discover_claude() -> ClaudeCapabilities:
-    executable = shutil.which("claude")
-    architecture = platform.machine().lower()
-    if executable is None:
-        return ClaudeCapabilities(
-            None, None, architecture, "", "not_found", None, None, prohibited_credentials()
-        )
-    version_process = _run_small([executable, "--version"])
-    help_process = _run_small([executable, "--help"])
-    auth_process = _run_small([executable, "auth", "status", "--json"])
+    """Discover Claude CLI binary and its capabilities."""
+    executable = None
+    for dirname in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = Path(dirname) / "claude"
+        if candidate.exists() and candidate.is_file():
+            executable = str(candidate)
+            break
+
+    architecture = platform.machine()
+    version: str | None = None
+    help_text = ""
     auth_status = "unknown"
     auth_method: str | None = None
-    login_command = _discover_login_command(executable)
-    if auth_process.stdout.strip():
-        try:
-            auth = json.loads(auth_process.stdout)
-            if isinstance(auth, dict):
-                authenticated = auth.get("loggedIn", auth.get("authenticated"))
-                auth_status = "authenticated" if authenticated is True else "not_authenticated"
-                method = auth.get("authMethod", auth.get("method"))
-                auth_method = str(method) if method else None
-        except json.JSONDecodeError:
-            auth_status = "unknown"
-    elif auth_process.returncode != 0:
-        auth_status = "not_authenticated"
+    login_command: str | None = None
+
+    if executable:
+        result = _run_small([executable, "--version"])
+        version = result.stdout.strip() if result.returncode == 0 else None
+
+        result = _run_small([executable, "--help"])
+        help_text = result.stdout if result.returncode == 0 else ""
+
+        result = _run_small([executable, "auth", "get-status"], timeout=5)
+        if result.returncode == 0:
+            try:
+                auth_data = json.loads(result.stdout)
+                auth_status = str(auth_data.get("authenticated", False)).lower().replace("true", "authenticated").replace("false", "not_authenticated")
+                auth_method = auth_data.get("method")
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        if auth_status != "authenticated":
+            login_command = "claude auth login"
+            result = _run_small([executable, "auth", "login", "--help"], timeout=2)
+            if result.returncode == 0 and "--keyring" in result.stdout:
+                login_command = "claude auth login --keyring"
+
+    prohibited = prohibited_credentials()
+
     return ClaudeCapabilities(
         executable=executable,
-        version=sanitize_text(
-            version_process.stdout.strip() or version_process.stderr.strip(), 200
-        ),
+        version=version,
         architecture=architecture,
-        help_text=help_process.stdout,
+        help_text=help_text,
         auth_status=auth_status,
         auth_method=auth_method,
         login_command=login_command,
-        prohibited_credentials=prohibited_credentials(),
+        prohibited_credentials=prohibited,
     )
 
 
-def _discover_login_command(executable: str) -> str:
-    auth_login = _run_small([executable, "auth", "login", "--help"])
-    if auth_login.returncode in {0, 1, 2}:
-        return "claude auth login"
-    direct_login = _run_small([executable, "login", "--help"])
-    if direct_login.returncode in {0, 1, 2}:
-        return "claude login"
-    return "claude auth login"
-
-
 def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str]:
-    allowed = {
-        "HOME",
-        "PATH",
-        "LANG",
-        "LC_ALL",
-        "TMPDIR",
-        "SSL_CERT_FILE",
-        "SSL_CERT_DIR",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "USER",
-        "LOGNAME",
-        "SHELL",
-        "XDG_CONFIG_HOME",
-        "XDG_STATE_HOME",
-        "XDG_CACHE_HOME",
-        "CLAUDE_CONFIG_DIR",
-    }
-    environment = {key: value for key, value in os.environ.items() if key in allowed}
-    # Claude Code needs USER to access macOS Keychain for subscription auth.
-    # If the parent process did not forward USER, resolve it from the OS directly.
-    if "USER" not in environment:
-        import pwd as _pwd
+    """Create a clean environment for Claude subprocess.
 
+    Removes prohibited credentials and sets up essential variables.
+    """
+    import pwd
+
+    environment = {
+        "HOME": str(Path.home()),
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "en_US.UTF-8",
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        "CLAUDE_CODE_SKIP_PROMPT_HISTORY": "1",
+    }
+
+    # Try to get USER from environment, fall back to pwd
+    if "USER" in os.environ:
+        environment["USER"] = os.environ["USER"]
+    else:
         try:
-            environment["USER"] = _pwd.getpwuid(os.getuid()).pw_name
-        except (KeyError, AttributeError):
+            environment["USER"] = pwd.getpwuid(os.getuid()).pw_name
+        except (KeyError, OSError):
             pass
-    if "LOGNAME" not in environment and "USER" in environment:
-        environment["LOGNAME"] = environment["USER"]
-    environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1"
+
+    if "LOGNAME" in os.environ:
+        environment["LOGNAME"] = os.environ["LOGNAME"]
+
+    if "SHELL" in os.environ:
+        environment["SHELL"] = os.environ["SHELL"]
+
     return environment
 
 
 def _authentication_error(
-    capabilities: ClaudeCapabilities, reason: str | None = None
+    capabilities: ClaudeCapabilities, stderr: str = "", stdout: str = ""
 ) -> AppError:
+    """Format authentication error message."""
     login_command = capabilities.login_command or "claude auth login"
-    message = (
-        f"Claude subscription session is not available. Run `{login_command}` in Terminal, "
-        "complete login, then retry."
-    )
+    reason = stderr or stdout
+    message = f"Claude authentication required: {login_command}"
     if reason:
         message = f"{message} ({sanitize_text(reason, 160)})"
     return AppError(
@@ -293,7 +296,6 @@ def _invoke_once(
     duration = round(time.monotonic() - started, 3)
     if process.returncode != 0:
         # If Claude CLI returned error JSON (e.g. is_error:true), extract result for classification.
-        # This helps identify rate-limit / auth errors even when returncode != 0.
         classify_text = stderr
         if not classify_text and stdout.strip().startswith("{"):
             try:
@@ -327,8 +329,20 @@ def _invoke_once(
 
 
 def run_claude(
-    paths: AppPaths, config: dict[str, Any], *, trigger: str, dry_run: bool
+    paths: AppPaths, config: dict[str, Any], *, trigger: str, window_type: str | None = None, dry_run: bool
 ) -> dict[str, Any]:
+    """Run Claude with the given configuration.
+
+    Args:
+        paths: Application paths
+        config: Configuration dict
+        trigger: Trigger type (manual, automatic, etc.)
+        window_type: Window type being triggered ("five_hour", "weekly", or None)
+        dry_run: If True, don't actually invoke Claude
+
+    Returns:
+        Result dict with response, model, etc.
+    """
     paths.ensure()
     capabilities = discover_claude()
     if capabilities.executable is None:
@@ -341,20 +355,7 @@ def run_claude(
         )
     if capabilities.auth_status == "not_authenticated":
         raise _authentication_error(capabilities)
-    now = local_now(config)
-    is_automatic = trigger in {"automatic", "catch_up", "background"}
-    if is_automatic and not config["enabled"]:
-        raise AppError(ErrorCode.CONFIG_INVALID, "Automatic execution is disabled")
-    state = load_state(paths)
-    next_window = state.get("next_window_run_at")
-    # Check five-hour window: skip if not due (prevents hitting limit repeatedly).
-    # For automatic triggers always; for manual triggers only if automation is enabled.
-    if config["enabled"] and isinstance(next_window, str):
-        try:
-            if datetime.now(timezone.utc) < datetime.fromisoformat(next_window):
-                raise AppError(ErrorCode.WINDOW_NOT_DUE)
-        except ValueError:
-            pass
+
     if dry_run:
         return {
             "dry_run": True,
@@ -363,15 +364,9 @@ def run_claude(
             "would_use_model": config["model"],
             "real_request_sent": False,
         }
+
     with FileLock(paths.run_lock, timeout=0, error_code=ErrorCode.ALREADY_RUNNING):
         state = load_state(paths)
-        next_window = state.get("next_window_run_at")
-        if is_automatic and isinstance(next_window, str):
-            try:
-                if datetime.now(timezone.utc) < datetime.fromisoformat(next_window):
-                    raise AppError(ErrorCode.WINDOW_NOT_DUE)
-            except ValueError:
-                pass
         selected = config["model"]
         candidates: list[str | None]
         if selected == "auto":
@@ -390,6 +385,7 @@ def run_claude(
                     candidates.append(candidate)
         else:
             candidates = [str(selected)]
+
         result: dict[str, Any] | None = None
         last_error: AppError | None = None
         for candidate in candidates:
@@ -400,58 +396,24 @@ def run_claude(
                 last_error = exc
                 if exc.code != ErrorCode.MODEL_UNAVAILABLE or candidate is None:
                     raise
+
         if result is None:
             raise last_error or AppError(ErrorCode.NONZERO_EXIT)
+
         completed_at = datetime.now(timezone.utc)
-        ended = completed_at.isoformat()
-        next_at, verified_window = next_window_time(
-            result.get("rate_limits"),
-            completed_at=completed_at,
-            grace_seconds=int(config["reset_grace_seconds"]),
-        )
         record = {
             "trigger_source": trigger,
-            "run_type": "automatic" if is_automatic else "manual",
-            "end_time": ended,
+            "window_type": window_type,
+            "end_time": completed_at.isoformat(),
             "status": "success",
             "selected_model": result["selected_model"],
             "claude_cli_version": capabilities.version,
             "exit_code": 0,
             "response_summary": result["response"],
-            "usage_window_verification": {
-                "verified": verified_window,
-                "method": "claude_statusline" if verified_window else "five_hour_estimate",
-                "message": WINDOW_VERIFIED if verified_window else WINDOW_UNVERIFIED,
-            },
-            "rate_limits": result.get("rate_limits"),
-            "next_window_run_at": next_at.isoformat(),
         }
 
         def save_run(current: dict[str, Any]) -> None:
             current["last_run"] = record
-            current["automatic_blocked"] = None
-            current["automatic_blocked_date"] = None
-            if is_automatic:
-                current["last_automatic_date"] = now.date().isoformat()
-            usage_window_data: dict[str, Any] = {
-                "verified": verified_window,
-                "source": "claude_statusline" if verified_window else "five_hour_estimate",
-                "rate_limits": result.get("rate_limits"),
-                "captured_at": ended,
-            }
-            # Extract used_percentage and resets_at for UI display.
-            rate_limits = result.get("rate_limits")
-            if isinstance(rate_limits, dict):
-                five_hour = rate_limits.get("five_hour")
-                if isinstance(five_hour, dict):
-                    used_pct = five_hour.get("used_percentage")
-                    resets_at = five_hour.get("resets_at")
-                    if used_pct is not None:
-                        usage_window_data["used_percentage"] = used_pct
-                    if resets_at is not None:
-                        usage_window_data["resets_at_epoch"] = resets_at
-            current["usage_window"] = usage_window_data
-            current["next_window_run_at"] = next_at.isoformat()
             if selected == "auto":
                 current["model_cache"] = {
                     "model": result["selected_model"]
@@ -462,8 +424,8 @@ def run_claude(
 
         update_state(paths, save_run)
         log_event(paths, record)
+
         return {
             **result,
             "real_request_sent": True,
-            "usage_window_verification": record["usage_window_verification"],
         }
