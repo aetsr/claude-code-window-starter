@@ -66,105 +66,36 @@ struct ContentView: View {
 
     private var claude: some View {
         Form {
-            Section("Pencere Kurulumu") {
+            Section("Genel") {
                 Toggle("Otomasyonu etkinleştir", isOn: $model.settings.enabled)
                 TextField("IANA zaman dilimi", text: $model.settings.timezone)
+            }
 
-                // 5-hour window
-                GroupBox("5 Saatlik Pencere") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Toggle("", isOn: $model.settings.fiveHourEnabled)
-                            Text(model.fiveHourCountdown)
-                                .font(.system(.body, design: .monospaced))
-                                .fontWeight(.medium)
-                            Spacer()
-                            Text(model.fiveHourNextRunText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let result = model.fiveHourLastResultText {
-                            Text(result).font(.caption).foregroundStyle(.secondary)
-                        }
-
-                        if model.fiveHourCalibrationNeeded {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                    Text("Kalibrasyona gerek var")
-                                        .fontWeight(.medium)
-                                }
-                                if !model.fiveHourCalibrationError.isEmpty {
-                                    Text(model.fiveHourCalibrationError)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                HStack(spacing: 8) {
-                                    DatePicker("", selection: $model.calibrationDate, displayedComponents: [.date, .hourAndMinute])
-                                        .datePickerStyle(.compact)
-                                    Button("Kalibre Et") {
-                                        model.calibrateWindow("five_hour")
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                }
-                            }
-                            .padding(.top, 8)
-                            .padding()
-                            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
-                        }
-                    }
-                }
-
-                // Weekly window
-                GroupBox("Haftalık Pencere") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Toggle("", isOn: $model.settings.weeklyEnabled)
-                            Text(model.weeklyCountdown)
-                                .font(.system(.body, design: .monospaced))
-                                .fontWeight(.medium)
-                            Spacer()
-                            Text(model.weeklyNextRunText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let result = model.weeklyLastResultText {
-                            Text(result).font(.caption).foregroundStyle(.secondary)
-                        }
-
-                        if model.weeklyCalibrationNeeded {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                    Text("Kalibrasyona gerek var")
-                                        .fontWeight(.medium)
-                                }
-                                if !model.weeklyCalibrationError.isEmpty {
-                                    Text(model.weeklyCalibrationError)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                HStack(spacing: 8) {
-                                    DatePicker("", selection: $model.calibrationDate, displayedComponents: [.date, .hourAndMinute])
-                                        .datePickerStyle(.compact)
-                                    Button("Kalibre Et") {
-                                        model.calibrateWindow("weekly")
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                }
-                            }
-                            .padding(.top, 8)
-                            .padding()
-                            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
-                        }
-                    }
-                }
+            Section("Limit Kalibrasyonu") {
+                windowCalibrationRow(
+                    windowType: "five_hour",
+                    title: "5 Saatlik Limit",
+                    enabled: $model.settings.fiveHourEnabled,
+                    anchorDate: $model.fiveHourAnchorDate,
+                    isCalibrated: model.fiveHourIsCalibrated,
+                    countdown: model.fiveHourCountdown,
+                    nextRunText: model.fiveHourNextRunText,
+                    lastResult: model.fiveHourLastResultText,
+                    calibrationNeeded: model.fiveHourCalibrationNeeded,
+                    calibrationError: model.fiveHourCalibrationError
+                )
+                windowCalibrationRow(
+                    windowType: "weekly",
+                    title: "Haftalık Limit",
+                    enabled: $model.settings.weeklyEnabled,
+                    anchorDate: $model.weeklyAnchorDate,
+                    isCalibrated: model.weeklyIsCalibrated,
+                    countdown: model.weeklyCountdown,
+                    nextRunText: model.weeklyNextRunText,
+                    lastResult: model.weeklyLastResultText,
+                    calibrationNeeded: model.weeklyCalibrationNeeded,
+                    calibrationError: model.weeklyCalibrationError
+                )
             }
 
             Section("Claude") {
@@ -180,6 +111,87 @@ struct ContentView: View {
             }
         }
         .padding()
+    }
+
+    @ViewBuilder
+    private func windowCalibrationRow(
+        windowType: String,
+        title: String,
+        enabled: Binding<Bool>,
+        anchorDate: Binding<Date>,
+        isCalibrated: Bool,
+        countdown: String,
+        nextRunText: String,
+        lastResult: String?,
+        calibrationNeeded: Bool,
+        calibrationError: String
+    ) -> some View {
+        GroupBox(title) {
+            VStack(alignment: .leading, spacing: 10) {
+                // Enable toggle + countdown
+                HStack {
+                    Toggle("", isOn: enabled)
+                    Text(countdown)
+                        .font(.system(.body, design: .monospaced))
+                        .fontWeight(.medium)
+                    Spacer()
+                    Text(nextRunText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                // Warning: enabled but no anchor
+                if enabled.wrappedValue && !isCalibrated {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        Text("Otomasyon için reset zamanı girilmeli")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                // Always-visible anchor picker
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Reset zamanı (\(isCalibrated ? "güncelle" : "ilk kurulum"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        DatePicker("", selection: anchorDate, displayedComponents: [.date, .hourAndMinute])
+                            .datePickerStyle(.compact)
+                        Button(isCalibrated ? "Güncelle" : "Kaydet") {
+                            model.saveWindowAnchor(windowType)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+
+                // Last result
+                if let result = lastResult {
+                    Text(result).font(.caption).foregroundStyle(.secondary)
+                }
+
+                // Post-failure calibration error banner
+                if calibrationNeeded {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("Kalibrasyon hatası")
+                                .fontWeight(.medium)
+                                .font(.caption)
+                        }
+                        if !calibrationError.isEmpty {
+                            Text(calibrationError)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        }
     }
 
     private var telegram: some View {

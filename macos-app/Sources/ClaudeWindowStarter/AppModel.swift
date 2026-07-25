@@ -31,7 +31,10 @@ final class AppModel: ObservableObject {
     @Published var weeklyLastResultText: String? = nil
     @Published var weeklyCalibrationNeeded = false
     @Published var weeklyCalibrationError = ""
-    @Published var calibrationDate = Date()
+    @Published var fiveHourAnchorDate = Date()
+    @Published var weeklyAnchorDate = Date()
+    @Published var fiveHourIsCalibrated = false
+    @Published var weeklyIsCalibrated = false
 
     private let backend = BackendClient()
 
@@ -211,10 +214,16 @@ final class AppModel: ObservableObject {
         ).uppercased()
     }
 
-    func calibrateWindow(_ windowType: String) {
+    func saveWindowAnchor(_ windowType: String) {
+        let date = windowType == "five_hour" ? fiveHourAnchorDate : weeklyAnchorDate
         let formatter = ISO8601DateFormatter()
-        let isoString = formatter.string(from: calibrationDate)
+        formatter.formatOptions = [.withInternetDateTime]
+        let isoString = formatter.string(from: date)
         perform(["calibrate", "--window-type", windowType, "--anchor", isoString])
+    }
+
+    func calibrateWindow(_ windowType: String) {
+        saveWindowAnchor(windowType)
     }
 
     func pairTelegram() {
@@ -280,11 +289,25 @@ final class AppModel: ObservableObject {
     private func parseWindowStatus(_ windowType: String, _ value: JSONValue?) {
         guard case .object(let window) = value else { return }
 
-        let countdownKey = windowType == "five_hour" ? "fiveHourCountdown" : "weeklyCountdown"
-        let nextRunKey = windowType == "five_hour" ? "fiveHourNextRunText" : "weeklyNextRunText"
-        let lastResultKey = windowType == "five_hour" ? "fiveHourLastResultText" : "weeklyLastResultText"
-        let calibrationNeededKey = windowType == "five_hour" ? "fiveHourCalibrationNeeded" : "weeklyCalibrationNeeded"
-        let calibrationErrorKey = windowType == "five_hour" ? "fiveHourCalibrationError" : "weeklyCalibrationError"
+        // Parse anchor_iso → isCalibrated + anchorDate
+        if case .string(let anchorISO)? = window["anchor_iso"], !anchorISO.isEmpty {
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let anchorDate = isoFormatter.date(from: anchorISO) ?? {
+                isoFormatter.formatOptions = [.withInternetDateTime]
+                return isoFormatter.date(from: anchorISO)
+            }()
+            if windowType == "five_hour" {
+                fiveHourIsCalibrated = true
+                if let d = anchorDate { fiveHourAnchorDate = d }
+            } else {
+                weeklyIsCalibrated = true
+                if let d = anchorDate { weeklyAnchorDate = d }
+            }
+        } else {
+            if windowType == "five_hour" { fiveHourIsCalibrated = false }
+            else { weeklyIsCalibrated = false }
+        }
 
         if case .string(let countdown)? = window["countdown"] {
             if windowType == "five_hour" { fiveHourCountdown = countdown }
@@ -339,6 +362,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func parseISO(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = formatter.date(from: text) { return d }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
+
     private func formatDateTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -361,12 +392,24 @@ final class AppModel: ObservableObject {
         if case .object(let windows)? = object["windows"] {
             if case .object(let fiveHour)? = windows["five_hour"] {
                 if case .bool(let value)? = fiveHour["enabled"] { settings.fiveHourEnabled = value }
-                if case .string(let value)? = fiveHour["anchor_iso"] { settings.fiveHourAnchorISO = value }
+                if case .string(let value)? = fiveHour["anchor_iso"] {
+                    settings.fiveHourAnchorISO = value
+                    if !value.isEmpty {
+                        fiveHourIsCalibrated = true
+                        if let d = parseISO(value) { fiveHourAnchorDate = d }
+                    }
+                }
                 if case .number(let value)? = fiveHour["interval_minutes"] { settings.fiveHourIntervalMinutes = Int(value) }
             }
             if case .object(let weekly)? = windows["weekly"] {
                 if case .bool(let value)? = weekly["enabled"] { settings.weeklyEnabled = value }
-                if case .string(let value)? = weekly["anchor_iso"] { settings.weeklyAnchorISO = value }
+                if case .string(let value)? = weekly["anchor_iso"] {
+                    settings.weeklyAnchorISO = value
+                    if !value.isEmpty {
+                        weeklyIsCalibrated = true
+                        if let d = parseISO(value) { weeklyAnchorDate = d }
+                    }
+                }
                 if case .number(let value)? = weekly["interval_minutes"] { settings.weeklyIntervalMinutes = Int(value) }
             }
         }
