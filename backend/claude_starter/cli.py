@@ -157,11 +157,24 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 and config["telegram"]["enabled"]
                 and config["telegram"]["notify_success"]
             ):
-                notify(
-                    paths,
-                    f"Claude request succeeded. Model: {result['selected_model']}\n"
-                    f"{result['usage_window_verification']['message']}",
-                )
+                # Build notification with usage information if available
+                message_parts = [
+                    f"Claude request succeeded. Model: {result['selected_model']}",
+                    result['usage_window_verification']['message'],
+                ]
+                # Add usage percentage and reset time if available
+                rate_limits = result.get("rate_limits")
+                if isinstance(rate_limits, dict):
+                    five_hour = rate_limits.get("five_hour", {})
+                    used_pct = five_hour.get("used_percentage")
+                    resets_at = five_hour.get("resets_at")
+                    if used_pct is not None:
+                        message_parts.append(f"Usage: {int(used_pct)}%")
+                    if resets_at is not None:
+                        from datetime import datetime as dt
+                        reset_time = dt.fromtimestamp(resets_at, tz=timezone.utc)
+                        message_parts.append(f"Resets: {reset_time.strftime('%H:%M %Z')}")
+                notify(paths, "\n".join(message_parts))
             rotate_logs(paths, config["log_retention_days"])
             return "dry_run" if args.dry_run else "success", result
         except AppError as exc:
@@ -193,6 +206,18 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                         minimum_delay=900,
                         maximum_delay=3600,
                     )
+                # Notify about rate limit with reset time
+                if (
+                    not args.dry_run
+                    and config["telegram"]["enabled"]
+                    and config["telegram"]["notify_failure"]
+                ):
+                    try:
+                        reset_msg = f"Claude usage limit reached. Resumes at {next_at.strftime('%H:%M %Z')}"
+                        notify(paths, f"Claude request failed: {exc.code.value} — {reset_msg}")
+                    except AppError:
+                        pass
+                if is_automatic:
                     return "pending_limit", {
                         "real_request_sent": False,
                         "reason": exc.code.value,

@@ -189,6 +189,52 @@ class ClaudeTests(unittest.TestCase):
                 error = _classify_failure("", phrase, 1, capabilities)
                 self.assertEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT, f"Failed for: {phrase}")
 
+    def test_limit_message_with_low_usage_percentage_not_classified_as_error(self) -> None:
+        """Limit mesajı gelse bile used_percentage < 100 ise error değildir."""
+        from claude_starter.claude import _classify_failure
+
+        capabilities = discover_claude()
+        # JSON contains "hit your limit" text but used_percentage is only 45%
+        stdout = json.dumps(
+            {
+                "type": "result",
+                "is_error": False,
+                "result": "You've hit your limit in terms of this feature but usage OK",
+                "rate_limits": {"five_hour": {"used_percentage": 45, "resets_at": 2000000000}},
+            }
+        )
+        error = _classify_failure("", stdout, 0, capabilities)
+        # Should NOT be RATE_OR_USAGE_LIMIT since used_percentage < 100
+        self.assertNotEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT)
+
+    def test_rate_limit_only_when_used_percentage_100_or_more(self) -> None:
+        """RATE_OR_USAGE_LIMIT iff JSON says used_percentage >= 100."""
+        from claude_starter.claude import _classify_failure
+
+        capabilities = discover_claude()
+        test_cases = [
+            (99, False),  # Not at limit
+            (100, True),  # Exactly at limit
+            (101, True),  # Over limit
+        ]
+        for used_pct, should_be_limit in test_cases:
+            with self.subTest(used_pct=used_pct):
+                stdout = json.dumps(
+                    {
+                        "type": "result",
+                        "is_error": True,
+                        "result": "You've hit your limit",
+                        "rate_limits": {
+                            "five_hour": {"used_percentage": used_pct, "resets_at": 2000000000}
+                        },
+                    }
+                )
+                error = _classify_failure("", stdout, 1, capabilities)
+                if should_be_limit:
+                    self.assertEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT)
+                else:
+                    self.assertNotEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT)
+
 
     def test_manual_trigger_respects_window_when_automation_enabled(self) -> None:
         """Manual trigger should respect 5-hour window if automation enabled."""

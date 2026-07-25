@@ -224,9 +224,33 @@ final class AppModel: ObservableObject {
         if case .bool(let value)? = object["telegram_enabled"] { settings.telegramEnabled = value }
         if case .string(let value)? = object["next_run"] { nextRunText = value }
         if case .object(let usage)? = object["usage_window"] {
-            if case .bool(let verified)? = usage["verified"] {
-                usageWindowText = verified ? "Resmî reset zamanı doğrulandı" : "5 saatlik tahmin kullanılıyor"
+            var parts: [String] = []
+
+            // Check usage percentage
+            if case .number(let usedPct)? = usage["used_percentage"] {
+                let rounded = Int(usedPct)
+                parts.append("Kullanım: \(rounded)%")
+                if rounded >= 100 {
+                    parts.append("⚠️ Limit dolu!")
+                }
             }
+
+            // Check reset time
+            if case .number(let resetsAt)? = usage["resets_at_epoch"] {
+                let resetDate = Date(timeIntervalSince1970: TimeInterval(resetsAt))
+                let formatter = DateFormatter()
+                formatter.timeStyle = .short
+                formatter.dateStyle = .none
+                let resetTime = formatter.string(from: resetDate)
+                parts.append("Reset: \(resetTime)")
+            }
+
+            // Check verification status
+            if case .bool(let verified)? = usage["verified"] {
+                parts.append(verified ? "✓ Resmî" : "~ Tahmin")
+            }
+
+            usageWindowText = parts.isEmpty ? "İlk Claude kontrolü bekleniyor" : parts.joined(separator: " • ")
         } else {
             usageWindowText = "İlk Claude kontrolü bekleniyor"
         }

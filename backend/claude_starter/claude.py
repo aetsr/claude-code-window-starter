@@ -209,11 +209,32 @@ def _authentication_error(
 def _classify_failure(
     stderr: str, stdout: str, returncode: int, capabilities: ClaudeCapabilities
 ) -> AppError:
+    # Check rate_limits in JSON first (most reliable source).
+    # Only classify as rate-limit if used_percentage >= 100.
+    json_used_percentage: float | None = None
+    if stdout.strip().startswith("{"):
+        try:
+            payload = json.loads(stdout)
+            if isinstance(payload, dict):
+                rate_limits = payload.get("rate_limits")
+                if isinstance(rate_limits, dict):
+                    five_hour = rate_limits.get("five_hour")
+                    if isinstance(five_hour, dict):
+                        used = five_hour.get("used_percentage")
+                        if isinstance(used, (int, float)):
+                            json_used_percentage = float(used)
+                            if json_used_percentage >= 100:
+                                return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
+        except json.JSONDecodeError:
+            pass
+
     text = f"{stderr}\n{stdout}".lower()
     if "model" in text and any(
         word in text for word in ("unavailable", "not available", "invalid model")
     ):
         return AppError(ErrorCode.MODEL_UNAVAILABLE, "Requested Claude model is unavailable")
+    # String pattern matching for limit keywords.
+    # But: if JSON rate_limits confirmed used < 100, this is not a hard limit.
     if any(
         word in text
         for word in (
@@ -229,7 +250,13 @@ def _classify_failure(
             "usage cap",
         )
     ):
-        return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
+        # If JSON has rate_limits with used < 100, this is informational, not an error.
+        if json_used_percentage is not None and json_used_percentage < 100:
+            # Don't treat as a hard limit error; fall through to other error types.
+            pass
+        else:
+            # Either no JSON data or JSON confirms >= 100: treat as rate limit error.
+            return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
     if any(word in text for word in ("not logged in", "authentication", "unauthorized", "oauth")):
         return _authentication_error(capabilities, stderr or stdout)
     if any(
@@ -469,12 +496,24 @@ def run_claude(
             current["automatic_blocked_date"] = None
             if is_automatic:
                 current["last_automatic_date"] = now.date().isoformat()
-            current["usage_window"] = {
+            usage_window_data: dict[str, Any] = {
                 "verified": verified_window,
                 "source": "claude_statusline" if verified_window else "five_hour_estimate",
                 "rate_limits": result.get("rate_limits"),
                 "captured_at": ended,
             }
+            # Extract used_percentage and resets_at for UI display.
+            rate_limits = result.get("rate_limits")
+            if isinstance(rate_limits, dict):
+                five_hour = rate_limits.get("five_hour")
+                if isinstance(five_hour, dict):
+                    used_pct = five_hour.get("used_percentage")
+                    resets_at = five_hour.get("resets_at")
+                    if used_pct is not None:
+                        usage_window_data["used_percentage"] = used_pct
+                    if resets_at is not None:
+                        usage_window_data["resets_at_epoch"] = resets_at
+            current["usage_window"] = usage_window_data
             current["next_window_run_at"] = next_at.isoformat()
             if selected == "auto":
                 current["model_cache"] = {
