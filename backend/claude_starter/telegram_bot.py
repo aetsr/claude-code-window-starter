@@ -49,6 +49,11 @@ HELP = """🤖 Claude Window Starter
 /help — Bu menü"""
 
 
+def _md_escape(s: str) -> str:
+    """Escape Markdown special characters in dynamic values."""
+    return s.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+
+
 def _fmt_dt(dt: Any, tz_name: str = "UTC") -> str:
     """Format a datetime or ISO string to human-readable Turkish format."""
     from zoneinfo import ZoneInfo
@@ -190,7 +195,7 @@ class TelegramBot:
                 f"📊 *Sistem Durumu*\n"
                 f"Otomasyon: {enabled}\n"
                 f"Uyku önleme: {bg}\n"
-                f"Zaman dilimi: {tz}\n"
+                f"Zaman dilimi: {_md_escape(tz)}\n"
                 f"Sağlık: {health_str}\n"
                 f"Sonraki çalışmalar:\n{windows_str}{last_str}"
             ), None
@@ -245,7 +250,7 @@ class TelegramBot:
             ok = "✅ Sağlıklı" if health.get("ok") else "⚠️ Sorun var"
             issues = [k for k, v in health.get("checks", {}).items() if isinstance(v, dict) and not v.get("ok", True)]
             issues_str = ", ".join(issues) if issues else "—"
-            return f"🔧 *Bakım Raporu*\nSağlık: {ok}\nSorunlar: {issues_str}", None
+            return f"🔧 *Bakım Raporu*\nSağlık: {ok}\nSorunlar: {_md_escape(issues_str)}", None
         if command == "/dryrun":
             _start_local_job("dry")
             return "🧪 Kuru çalışma başlatıldı — Claude'a gerçek istek gönderilmeyecek.", None
@@ -284,7 +289,7 @@ class TelegramBot:
                 raise AppError(ErrorCode.CONFIG_INVALID, "Geçersiz IANA zaman dilimi") from exc
             self.config["timezone"] = argument
             save_config(self.paths, self.config)
-            return f"✅ Zaman dilimi *{argument}* olarak güncellendi.", None
+            return f"✅ Zaman dilimi *{_md_escape(argument)}* olarak güncellendi.", None
         if command in {"/enable", "/disable"}:
             self.config["enabled"] = command == "/enable"
             save_config(self.paths, self.config)
@@ -315,7 +320,7 @@ class TelegramBot:
             model = last.get("selected_model", "?")
             trigger = last.get("trigger_source", "?")
             time_str = str(last.get("trigger_time", "?"))[:16]
-            return f"{status_icon} *Son Çalışma*\nZaman: {time_str}\nModel: {model}\nTetikleyici: {trigger}", None
+            return f"{status_icon} *Son Çalışma*\nZaman: {_md_escape(time_str)}\nModel: {_md_escape(str(model))}\nTetikleyici: {_md_escape(str(trigger))}", None
         if command == "/logs":
             return "\n".join(tail_sanitized(self.paths.log_file, 15)) or "No logs.", None
         if command == "/model":
@@ -327,9 +332,9 @@ class TelegramBot:
                 )
             self.config["model"] = argument
             save_config(self.paths, self.config)
-            return f"✅ Model *{argument}* olarak ayarlandı.", None
+            return f"✅ Model *{_md_escape(argument)}* olarak ayarlandı.", None
         if command == "/prompt":
-            return f"📝 Mevcut prompt:\n\n_{self.config['prompt'][:400]}_", None
+            return f"📝 Mevcut prompt:\n\n{self.config['prompt'][:400]}", None
         if command == "/setprompt":
             if not argument or len(argument) > int(self.telegram["max_prompt_length"]):
                 raise AppError(ErrorCode.CONFIG_INVALID, "Prompt is empty or too long")
