@@ -16,6 +16,11 @@ WINDOW_FIVE_HOUR = "five_hour"
 WINDOW_WEEKLY = "weekly"
 
 
+def _parse_iso(s: str) -> datetime:
+    """Parse ISO 8601 datetime string, accepting both Z and +00:00 UTC suffixes."""
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
 def next_window_after(
     anchor: datetime, interval: timedelta, now: datetime
 ) -> datetime:
@@ -104,17 +109,15 @@ def windows_due(
         # No previous run: check if we're past the anchor
         if next_run is None:
             try:
-                anchor = datetime.fromisoformat(w["anchor_iso"]).astimezone(
-                    timezone.utc
-                )
+                anchor = _parse_iso(w["anchor_iso"]).astimezone(timezone.utc)
                 if now >= anchor:
                     due.append(wtype)
-            except ValueError:
+            except (ValueError, KeyError):
                 pass
         else:
             # Check if current time >= scheduled next run
             try:
-                if now >= datetime.fromisoformat(next_run):
+                if now >= _parse_iso(next_run):
                     due.append(wtype)
             except ValueError:
                 pass
@@ -145,7 +148,7 @@ def advance_window(
     if not anchor_iso:
         raise ValueError(f"Window {wtype} has no anchor configured")
 
-    anchor = datetime.fromisoformat(anchor_iso).astimezone(timezone.utc)
+    anchor = _parse_iso(anchor_iso).astimezone(timezone.utc)
     interval = get_interval(w)
 
     return next_window_after(anchor, interval, now)

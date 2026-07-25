@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from claude_starter.windows import (
     WINDOW_FIVE_HOUR,
     WINDOW_WEEKLY,
+    _parse_iso,
     advance_window,
     current_window_start,
     format_countdown,
@@ -304,6 +305,70 @@ class WindowsTests(unittest.TestCase):
         next_win = next_window_after(self.anchor, interval, now)
         expected = self.anchor + (2 * interval)
         self.assertEqual(next_win, expected)
+
+
+class ZSuffixCompatibilityTests(unittest.TestCase):
+    """Tests verifying Z-suffix ISO strings (sent by Swift/macOS app) are accepted."""
+
+    def _five_hour_config(self, anchor_iso: str) -> dict:
+        return {
+            "windows": {
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": anchor_iso,
+                    "interval_minutes": 303,
+                },
+                "weekly": {
+                    "enabled": False,
+                    "anchor_iso": None,
+                    "interval_minutes": 10080,
+                },
+            }
+        }
+
+    def test_parse_iso_accepts_z_suffix(self) -> None:
+        """_parse_iso must accept Z UTC suffix (produced by Swift ISO8601DateFormatter)."""
+        dt = _parse_iso("2026-07-25T18:43:00Z")
+        self.assertEqual(dt.tzinfo.utcoffset(dt).total_seconds(), 0)
+        self.assertEqual(dt.hour, 18)
+        self.assertEqual(dt.minute, 43)
+
+    def test_parse_iso_accepts_plus_zero_suffix(self) -> None:
+        """_parse_iso must also accept +00:00 suffix (produced by Python isoformat)."""
+        dt = _parse_iso("2026-07-25T18:43:00+00:00")
+        self.assertEqual(dt.hour, 18)
+
+    def test_parse_iso_z_and_plus_zero_are_equivalent(self) -> None:
+        """Z and +00:00 must parse to the same moment."""
+        dt_z = _parse_iso("2026-07-25T18:43:00Z")
+        dt_plus = _parse_iso("2026-07-25T18:43:00+00:00")
+        self.assertEqual(dt_z, dt_plus)
+
+    def test_advance_window_accepts_z_suffix(self) -> None:
+        """advance_window must not raise when anchor_iso uses Z suffix."""
+        anchor_z = "2026-07-25T10:00:00Z"
+        config = self._five_hour_config(anchor_z)
+        now = datetime(2026, 7, 25, 16, 0, 0, tzinfo=timezone.utc)
+        result = advance_window("five_hour", config, now)
+        self.assertIsNotNone(result)
+        self.assertGreater(result, now)
+
+    def test_windows_due_accepts_z_suffix_in_anchor(self) -> None:
+        """windows_due must handle Z-suffix anchor without silently skipping the window."""
+        anchor_z = "2026-07-25T10:00:00Z"  # 6h ago
+        config = self._five_hour_config(anchor_z)
+        state: dict = {}
+        now = datetime(2026, 7, 25, 16, 0, 0, tzinfo=timezone.utc)
+        due = windows_due(config, state, now)
+        self.assertIn("five_hour", due)
+
+    def test_windows_due_accepts_z_suffix_in_next_run(self) -> None:
+        """windows_due must parse Z-suffix next_run_at from state."""
+        config = self._five_hour_config("2026-07-25T10:00:00+00:00")
+        state = {"five_hour_next_run_at": "2026-07-25T15:00:00Z"}
+        now = datetime(2026, 7, 25, 16, 0, 0, tzinfo=timezone.utc)
+        due = windows_due(config, state, now)
+        self.assertIn("five_hour", due)
 
 
 if __name__ == "__main__":

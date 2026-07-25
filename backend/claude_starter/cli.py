@@ -23,7 +23,7 @@ from .scheduler import next_runs, windows_due
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 from .telegram_bot import TelegramBot, notify
-from .windows import advance_window, format_countdown
+from .windows import _parse_iso, advance_window, format_countdown
 
 
 def envelope(
@@ -212,9 +212,9 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         window_type = args.window_type
         anchor_iso = args.anchor
 
-        # Validate anchor is valid ISO datetime
+        # Validate anchor is valid ISO datetime (accept both Z and +00:00 UTC suffixes)
         try:
-            datetime.fromisoformat(anchor_iso)
+            _parse_iso(anchor_iso)
         except ValueError:
             raise AppError(ErrorCode.CONFIG_INVALID, f"Invalid ISO datetime: {anchor_iso}")
 
@@ -369,6 +369,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _exit_code(exc.code)
     except KeyboardInterrupt:
         return 130
+    except Exception as exc:
+        result = envelope(False, "error", error=AppError(ErrorCode.CONFIG_INVALID, str(exc)))
+        print(
+            json.dumps(result, ensure_ascii=False, indent=2)
+            if json_output
+            else str(exc),
+            file=sys.stderr,
+        )
+        return 1
 
 
 def _human(result: dict[str, Any]) -> str:

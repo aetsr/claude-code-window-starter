@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import re
 from datetime import datetime
+
+from .windows import _parse_iso
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -265,7 +267,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
                         f"windows.{wtype}.anchor_iso must be an ISO datetime string or null",
                     )
                 try:
-                    datetime.fromisoformat(anchor)
+                    _parse_iso(anchor)
                 except ValueError:
                     raise AppError(
                         ErrorCode.CONFIG_INVALID,

@@ -177,6 +177,30 @@ class ConfigStateTests(unittest.TestCase):
         self.assertIn("five_hour", runs)
         self.assertGreater(runs["five_hour"], datetime.now(timezone.utc))
 
+    def test_validate_config_accepts_z_suffix_anchor_when_enabled(self) -> None:
+        """validate_config must accept Z-suffix anchor_iso (Swift format) when window enabled."""
+        from claude_starter.config import validate_config
+        import copy
+
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["windows"]["five_hour"]["enabled"] = True
+        config["windows"]["five_hour"]["anchor_iso"] = "2026-07-25T18:43:00Z"
+        # Should not raise
+        result = validate_config(config)
+        self.assertEqual(result["windows"]["five_hour"]["anchor_iso"], "2026-07-25T18:43:00Z")
+
+    def test_validate_config_accepts_z_suffix_anchor_when_disabled(self) -> None:
+        """validate_config must accept Z-suffix anchor even when window is disabled."""
+        from claude_starter.config import validate_config
+        import copy
+
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["windows"]["five_hour"]["enabled"] = False
+        config["windows"]["five_hour"]["anchor_iso"] = "2026-07-25T18:43:00Z"
+        # Should not raise regardless of enabled state
+        result = validate_config(config)
+        self.assertIsNotNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()

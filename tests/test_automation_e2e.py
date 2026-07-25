@@ -185,5 +185,115 @@ class AutomationE2ETests(unittest.TestCase):
                 self.assertIsNone(state.get("five_hour_next_run_at"))
 
 
+    def test_calibrate_with_z_suffix_anchor(self) -> None:
+        """Calibrate must succeed when anchor uses Z suffix (Swift/macOS app format)."""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory))
+            paths.ensure()
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            config["enabled"] = True
+            save_config(paths, config)
+
+            anchor_z = "2026-07-25T10:00:00Z"
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "--home", str(paths.base),
+                        "--json", "calibrate",
+                        "--window-type", "five_hour",
+                        "--anchor", anchor_z,
+                    ]
+                )
+            self.assertEqual(code, 0)
+            result = json.loads(output.getvalue())
+            self.assertTrue(result["ok"], f"Expected ok=true, got: {result}")
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["data"]["anchor_iso"], anchor_z)
+
+            # State must have next_run_at set
+            from claude_starter.state import load_state
+            state = load_state(paths)
+            self.assertIsNotNone(state.get("five_hour_next_run_at"))
+            self.assertIsNone(state.get("five_hour_calibration_needed"))
+
+    def test_calibrate_disabled_window_z_suffix(self) -> None:
+        """Calibrate must work even when window is disabled (edge case that caused invalidOutput)."""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory))
+            paths.ensure()
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            config["windows"]["five_hour"]["enabled"] = False
+            config["enabled"] = True
+            save_config(paths, config)
+
+            anchor_z = "2026-07-25T10:00:00Z"
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "--home", str(paths.base),
+                        "--json", "calibrate",
+                        "--window-type", "five_hour",
+                        "--anchor", anchor_z,
+                    ]
+                )
+            self.assertEqual(code, 0)
+            result = json.loads(output.getvalue())
+            self.assertTrue(result["ok"], f"Expected ok=true, got: {result}")
+
+    def test_calibrate_weekly_with_full_datetime_z_suffix(self) -> None:
+        """Calibrate weekly window with full datetime Z suffix (macOS date+time picker format)."""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory))
+            paths.ensure()
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            config["windows"]["weekly"]["enabled"] = True
+            config["enabled"] = True
+            save_config(paths, config)
+
+            anchor_z = "2026-07-20T09:30:00Z"
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "--home", str(paths.base),
+                        "--json", "calibrate",
+                        "--window-type", "weekly",
+                        "--anchor", anchor_z,
+                    ]
+                )
+            self.assertEqual(code, 0)
+            result = json.loads(output.getvalue())
+            self.assertTrue(result["ok"])
+            self.assertIsNotNone(result["data"]["next_run_at"])
+
+    def test_main_unhandled_exception_returns_json_error(self) -> None:
+        """Unexpected exceptions must produce a JSON error envelope, not a raw traceback."""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory))
+            paths.ensure()
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            save_config(paths, config)
+
+            import io as _io
+            stderr_buf = _io.StringIO()
+            with mock.patch("sys.stderr", stderr_buf):
+                code = main(
+                    [
+                        "--home", str(paths.base),
+                        "--json", "calibrate",
+                        "--window-type", "five_hour",
+                        "--anchor", "not-a-valid-datetime",
+                    ]
+                )
+            self.assertNotEqual(code, 0)
+            stderr_output = stderr_buf.getvalue()
+            # Must be parseable JSON (not a raw traceback)
+            envelope = json.loads(stderr_output)
+            self.assertFalse(envelope["ok"])
+            self.assertIn("schema_version", envelope)
+
+
 if __name__ == "__main__":
     unittest.main()
