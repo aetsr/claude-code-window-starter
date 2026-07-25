@@ -31,7 +31,8 @@ final class AppModel: ObservableObject {
     @Published var weeklyLastResultText: String? = nil
     @Published var weeklyCalibrationNeeded = false
     @Published var weeklyCalibrationError = ""
-    @Published var fiveHourAnchorDate = Date()
+    @Published var fiveHourRemainingHours = 0
+    @Published var fiveHourRemainingMinutes = 0
     @Published var weeklyAnchorDate = Date()
     @Published var fiveHourIsCalibrated = false
     @Published var weeklyIsCalibrated = false
@@ -215,7 +216,13 @@ final class AppModel: ObservableObject {
     }
 
     func saveWindowAnchor(_ windowType: String) {
-        let date = windowType == "five_hour" ? fiveHourAnchorDate : weeklyAnchorDate
+        let date: Date
+        if windowType == "five_hour" {
+            let totalSeconds = fiveHourRemainingHours * 3600 + fiveHourRemainingMinutes * 60
+            date = Date().addingTimeInterval(-Double(5 * 3600 - totalSeconds))
+        } else {
+            date = weeklyAnchorDate
+        }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         let isoString = formatter.string(from: date)
@@ -299,7 +306,6 @@ final class AppModel: ObservableObject {
             }()
             if windowType == "five_hour" {
                 fiveHourIsCalibrated = true
-                if let d = anchorDate { fiveHourAnchorDate = d }
             } else {
                 weeklyIsCalibrated = true
                 if let d = anchorDate { weeklyAnchorDate = d }
@@ -394,10 +400,7 @@ final class AppModel: ObservableObject {
                 if case .bool(let value)? = fiveHour["enabled"] { settings.fiveHourEnabled = value }
                 if case .string(let value)? = fiveHour["anchor_iso"] {
                     settings.fiveHourAnchorISO = value
-                    if !value.isEmpty {
-                        fiveHourIsCalibrated = true
-                        if let d = parseISO(value) { fiveHourAnchorDate = d }
-                    }
+                    if !value.isEmpty { fiveHourIsCalibrated = true }
                 }
                 if case .number(let value)? = fiveHour["interval_minutes"] { settings.fiveHourIntervalMinutes = Int(value) }
             }
