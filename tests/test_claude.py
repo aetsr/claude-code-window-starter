@@ -40,6 +40,13 @@ elif "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "haiku
         "model": "claude-haiku-test",
         "usage": {{"input_tokens": 1}},
     }}))
+elif "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "limit-error":
+    print(json.dumps({{
+        "type": "result",
+        "is_error": True,
+        "result": "You've hit your limit · resets 11:10pm (Europe/Istanbul)"
+    }}))
+    sys.exit(1)
 else:
     print(json.dumps({{"result": "OK", "model": "default-test"}}))
 """
@@ -144,6 +151,43 @@ class ClaudeTests(unittest.TestCase):
             env = _clean_environment(self.paths, config)
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", env)
+
+    def test_hit_your_limit_classified_as_rate_limit(self) -> None:
+        """Claude CLI 'hit your limit' mesajı RATE_OR_USAGE_LIMIT olarak sınıflanmalı."""
+        config = self.config()
+        config["model"] = "limit-error"
+        with self.assertRaises(AppError) as context:
+            run_claude(self.paths, config, trigger="macos_ui", dry_run=False)
+        self.assertEqual(context.exception.code, ErrorCode.RATE_OR_USAGE_LIMIT)
+
+    def test_is_error_json_with_limit_message_classified_correctly(self) -> None:
+        """returncode=1 + is_error:true + result='hit your limit' olan JSON doğru sınıflanmalı."""
+        from claude_starter.claude import _classify_failure
+
+        capabilities = discover_claude()
+        error = _classify_failure(
+            "",
+            '{"type":"result","is_error":true,"result":"You\'ve hit your limit · resets 11:10pm"}',
+            1,
+            capabilities,
+        )
+        self.assertEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT)
+
+    def test_various_limit_phrases_classified_as_rate_limit(self) -> None:
+        """Çeşitli limit mesajları tanınmalı."""
+        from claude_starter.claude import _classify_failure
+
+        capabilities = discover_claude()
+        limit_phrases = [
+            "you've hit your limit",
+            "daily limit exceeded",
+            "usage cap reached",
+            "hit the limit",
+        ]
+        for phrase in limit_phrases:
+            with self.subTest(phrase=phrase):
+                error = _classify_failure("", phrase, 1, capabilities)
+                self.assertEqual(error.code, ErrorCode.RATE_OR_USAGE_LIMIT, f"Failed for: {phrase}")
 
 
 if __name__ == "__main__":

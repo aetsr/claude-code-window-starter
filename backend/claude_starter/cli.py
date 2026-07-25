@@ -179,19 +179,25 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                         "pending": True,
                     },
                 )
-            if is_automatic and exc.code == ErrorCode.RATE_OR_USAGE_LIMIT:
-                mark_pending(
-                    paths,
-                    config,
-                    exc.code.value,
-                    minimum_delay=900,
-                    maximum_delay=3600,
-                )
-                return "pending_limit", {
-                    "real_request_sent": False,
-                    "reason": exc.code.value,
-                    "pending": True,
-                }
+            if exc.code == ErrorCode.RATE_OR_USAGE_LIMIT:
+                # Update next_window_run_at for UI even on manual trigger.
+                from .usage import next_window_time
+
+                next_at, _ = next_window_time(None, completed_at=datetime.now(timezone.utc), grace_seconds=int(config.get("reset_grace_seconds", 60)))
+                update_state(paths, lambda state: state.__setitem__("next_window_run_at", next_at.isoformat()))
+                if is_automatic:
+                    mark_pending(
+                        paths,
+                        config,
+                        exc.code.value,
+                        minimum_delay=900,
+                        maximum_delay=3600,
+                    )
+                    return "pending_limit", {
+                        "real_request_sent": False,
+                        "reason": exc.code.value,
+                        "pending": True,
+                    }
             if is_automatic and exc.code in {
                 ErrorCode.ALREADY_RAN_TODAY,
                 ErrorCode.WINDOW_NOT_DUE,

@@ -222,6 +222,11 @@ def _classify_failure(
             "limit reached",
             "session limit",
             "weekly limit",
+            "daily limit",
+            "hit your limit",
+            "you've hit",
+            "hit the limit",
+            "usage cap",
         )
     ):
         return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
@@ -312,7 +317,19 @@ def _invoke_once(
         raise AppError(ErrorCode.TIMEOUT, "Claude request timed out") from exc
     duration = round(time.monotonic() - started, 3)
     if process.returncode != 0:
-        raise _classify_failure(stderr, stdout, process.returncode or 1, capabilities)
+        # If Claude CLI returned error JSON (e.g. is_error:true), extract result for classification.
+        # This helps identify rate-limit / auth errors even when returncode != 0.
+        classify_text = stderr
+        if not classify_text and stdout.strip().startswith("{"):
+            try:
+                payload = json.loads(stdout)
+                if isinstance(payload, dict) and payload.get("is_error"):
+                    result = str(payload.get("result", ""))
+                    if result:
+                        classify_text = f"{classify_text}\n{result}".strip()
+            except json.JSONDecodeError:
+                pass
+        raise _classify_failure(classify_text or stderr, stdout, process.returncode or 1, capabilities)
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
