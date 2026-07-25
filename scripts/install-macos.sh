@@ -43,10 +43,8 @@ if [[ -L "$BASE/current" ]]; then
 fi
 atomic_link "$RELEASE" "$BASE/current"
 
-"$SOURCE_ROOT/scripts/build-macos-app.sh" "$SOURCE_ROOT/dist" >/dev/null
-install -d -m 0755 "$(dirname "$APP_DESTINATION")"
-rm -rf "$APP_DESTINATION"
-ditto "$SOURCE_ROOT/dist/Claude Window Starter.app" "$APP_DESTINATION"
+CLAUDE_STARTER_APP_PATH="$APP_DESTINATION" \
+  "$SOURCE_ROOT/scripts/build-macos-app.sh" >/dev/null
 codesign --verify --deep --strict "$APP_DESTINATION"
 
 render_plist() {
