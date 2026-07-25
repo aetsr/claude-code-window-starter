@@ -183,7 +183,8 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 and config["telegram"]["enabled"]
                 and config["telegram"]["notify_success"]
             ):
-                notify(paths, f"✅ {window_type} penceresi tamamlandı. Model: {result['selected_model']}")
+                window_label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
+                notify(paths, f"✅ {window_label} pencere tamamlandı.\nModel: {result['selected_model']}")
             rotate_logs(paths, config["log_retention_days"])
 
             # Update window state on success
@@ -246,7 +247,12 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
 
         next_window = next_runs(paths, config).get(window_type)
         next_iso = next_window.isoformat() if next_window else "unknown"
-        notify(paths, f"⚙️ {window_type} penceresi kalibre edildi. Sonraki çalışma: {next_iso}")
+        config_for_tz = load_config(paths, create=True)
+        tz_name = config_for_tz.get("timezone", "UTC")
+        from .telegram_bot import _fmt_dt as _tg_fmt
+        window_label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
+        next_display = _tg_fmt(next_window, tz_name) if next_window else "hesaplanamadı"
+        notify(paths, f"⚙️ {window_label} pencere kalibre edildi.\nSonraki çalışma: {next_display}")
         return "success", {"window_type": window_type, "anchor_iso": anchor_iso, "next_run_at": next_iso}
     if command == "config":
         if args.config_action in {"init", "get"}:
@@ -309,7 +315,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             if missed:
                 window_names = {"five_hour": "5 saatlik", "weekly": "haftalık"}
                 missed_str = ", ".join(window_names.get(w, w) for w in missed)
-                msg = f"🔌 İnternet bağlantısı yeniden kuruldu. Çevrimdışıyken şu pencereler kaçırıldı: {missed_str}. Lütfen kalibre edin."
+                msg = f"🔌 İnternet bağlantısı yeniden kuruldu.\n\nÇevrimdışıyken kaçırılan pencereler: *{missed_str}*\n\nLütfen Mac uygulamasından veya bot üzerinden kalibre edin."
                 try:
                     notify(paths, msg)
                 except Exception:

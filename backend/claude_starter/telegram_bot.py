@@ -49,6 +49,27 @@ HELP = """🤖 Claude Window Starter
 /help — Bu menü"""
 
 
+def _fmt_dt(dt: Any, tz_name: str = "UTC") -> str:
+    """Format a datetime or ISO string to human-readable Turkish format."""
+    from zoneinfo import ZoneInfo
+    MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran",
+              "Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"]
+    if dt is None:
+        return "bilinmiyor"
+    if isinstance(dt, str):
+        try:
+            from .windows import _parse_iso
+            dt = _parse_iso(dt)
+        except Exception:
+            return dt[:16]
+    try:
+        local = dt.astimezone(ZoneInfo(tz_name))
+        month = MONTHS[local.month - 1]
+        return f"{local.day} {month} {local.year}, {local.strftime('%H:%M')} ({tz_name.split('/')[-1]})"
+    except Exception:
+        return str(dt)[:16]
+
+
 class TelegramBot:
     def __init__(self, paths: AppPaths, api: TelegramAPI | None = None, token: str = "") -> None:
         self.paths = paths
@@ -99,8 +120,8 @@ class TelegramBot:
         return {
             "inline_keyboard": [
                 [
-                    {"text": "Confirm", "callback_data": f"confirm:{nonce}"},
-                    {"text": "Cancel", "callback_data": f"cancel:{nonce}"},
+                    {"text": "✅ Onayla", "callback_data": f"confirm:{nonce}"},
+                    {"text": "❌ İptal", "callback_data": f"cancel:{nonce}"},
                 ]
             ]
         }
@@ -177,35 +198,35 @@ class TelegramBot:
             _service_action("background", "start")
             self.config["enabled"] = True
             save_config(self.paths, self.config)
-            return "Automation enabled and background service started.", None
+            return "✅ Otomasyon etkinleştirildi ve arka plan servisi başlatıldı.", None
         if command == "/stop":
             _service_action("background", "stop")
             self.config["enabled"] = False
             save_config(self.paths, self.config)
-            return "Automation disabled and background service stopped.", None
+            return "⏹ Otomasyon devre dışı bırakıldı ve arka plan servisi durduruldu.", None
         if command == "/restart":
             _service_action("background", "restart")
-            return "Background service restarted.", None
+            return "♻️ Arka plan servisi yeniden başlatıldı.", None
         if command == "/run":
-            return "Run a real Claude subscription request?", self._confirmation(
+            return "🤖 Claude çalıştırılsın mı? Gerçek bir API isteği gönderilecek.", self._confirmation(
                 user_id, chat_id, "run"
             )
         if command == "/automation_on":
             self.config["enabled"] = True
             save_config(self.paths, self.config)
-            return "Automation enabled.", None
+            return "✅ Otomasyon etkinleştirildi.", None
         if command == "/automation_off":
             self.config["enabled"] = False
             save_config(self.paths, self.config)
-            return "Automation disabled.", None
+            return "⏸ Otomasyon devre dışı bırakıldı.", None
         if command in {"/background_on", "/sleep_on"}:
             self.config["background_enabled"] = True
             save_config(self.paths, self.config)
-            return "Background sleep-prevention mode enabled.", None
+            return "🌙 Uyku engelleme modu etkinleştirildi.", None
         if command in {"/background_off", "/sleep_off"}:
             self.config["background_enabled"] = False
             save_config(self.paths, self.config)
-            return "Background sleep-prevention mode disabled.", None
+            return "☀️ Uyku engelleme modu kapatıldı.", None
         if command == "/usage":
             next_window = next_runs(self.paths, self.config)
             lines = ["📅 *Pencere Durumu*"]
@@ -253,31 +274,30 @@ class TelegramBot:
                 lines.append(f"  • {label}: {dt.strftime('%d.%m.%Y %H:%M')} UTC")
             return "\n".join(lines), None
         if command == "/timezone":
-            return str(self.config["timezone"]), None
+            return f"🌍 Zaman dilimi: *{self.config['timezone']}*", None
         if command == "/settimezone":
             from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
             try:
                 ZoneInfo(argument)
             except ZoneInfoNotFoundError as exc:
-                raise AppError(ErrorCode.CONFIG_INVALID, "Invalid IANA timezone") from exc
+                raise AppError(ErrorCode.CONFIG_INVALID, "Geçersiz IANA zaman dilimi") from exc
             self.config["timezone"] = argument
             save_config(self.paths, self.config)
-            return f"Timezone updated to {argument}.", None
+            return f"✅ Zaman dilimi *{argument}* olarak güncellendi.", None
         if command in {"/enable", "/disable"}:
             self.config["enabled"] = command == "/enable"
             save_config(self.paths, self.config)
-            return f"Automation {'enabled' if self.config['enabled'] else 'disabled'}.", None
+            return f"{'✅ Otomasyon etkinleştirildi.' if self.config['enabled'] else '⏸ Otomasyon devre dışı.'}", None
         if command == "/background":
             if argument not in {"on", "off"}:
-                raise AppError(ErrorCode.CONFIG_INVALID, "Use /background on or /background off")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /background on veya /background off")
             self.config["background_enabled"] = argument == "on"
             save_config(self.paths, self.config)
-            background_status = "enabled" if self.config["background_enabled"] else "disabled"
             return (
-                f"Background mode {background_status}.",
-                None,
-            )
+                "🌙 Uyku engelleme etkinleştirildi." if self.config["background_enabled"]
+                else "☀️ Uyku engelleme kapatıldı."
+            ), None
         if command == "/next":
             next_window = next_runs(self.paths, self.config)
             if not next_window:
@@ -299,21 +319,21 @@ class TelegramBot:
         if command == "/logs":
             return "\n".join(tail_sanitized(self.paths.log_file, 15)) or "No logs.", None
         if command == "/model":
-            return str(self.config["model"]), None
+            return f"🤖 Aktif model: *{self.config['model']}*", None
         if command == "/setmodel":
             if argument not in {"auto", "haiku", "sonnet", "opus"}:
                 raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Model must be auto, haiku, sonnet, or opus"
+                    ErrorCode.CONFIG_INVALID, "Geçerli modeller: auto, haiku, sonnet, opus"
                 )
             self.config["model"] = argument
             save_config(self.paths, self.config)
-            return f"Model set to {argument}.", None
+            return f"✅ Model *{argument}* olarak ayarlandı.", None
         if command == "/prompt":
-            return str(self.config["prompt"]), None
+            return f"📝 Mevcut prompt:\n\n_{self.config['prompt'][:400]}_", None
         if command == "/setprompt":
             if not argument or len(argument) > int(self.telegram["max_prompt_length"]):
                 raise AppError(ErrorCode.CONFIG_INVALID, "Prompt is empty or too long")
-            return "Replace the configured prompt?", self._confirmation(
+            return f"📝 Prompt şununla değiştirilsin mi?\n\n_{argument[:200]}_", self._confirmation(
                 user_id, chat_id, "setprompt", argument
             )
         if command in {"/timer", "/restarttimer"}:
@@ -333,53 +353,52 @@ class TelegramBot:
             return f"👥 *Yetkili Kullanıcılar*\n{user_lines}\n\n💬 *Yetkili Sohbetler*\n{chat_lines}", None
         if command == "/adduser":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /adduser <numeric_user_id>")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /adduser <sayısal kullanıcı ID>")
             uid = int(argument.strip())
             ids = self.config["telegram"].setdefault("allowed_user_ids", [])
             if uid not in ids:
                 ids.append(uid)
                 save_config(self.paths, self.config)
-                return f"User {uid} added.", None
-            return f"User {uid} already authorized.", None
+                return f"✅ Kullanıcı {uid} eklendi.", None
+            return f"ℹ️ Kullanıcı {uid} zaten yetkili.", None
         if command == "/removeuser":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /removeuser <numeric_user_id>")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /removeuser <sayısal kullanıcı ID>")
             uid = int(argument.strip())
             ids = self.config["telegram"].get("allowed_user_ids", [])
             if uid in ids:
                 self.config["telegram"]["allowed_user_ids"] = [x for x in ids if x != uid]
                 save_config(self.paths, self.config)
-                return f"User {uid} removed.", None
-            return f"User {uid} was not authorized.", None
+                return f"🗑 Kullanıcı {uid} kaldırıldı.", None
+            return f"ℹ️ Kullanıcı {uid} listede değildi.", None
         if command == "/addchat":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /addchat <numeric_chat_id>")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /addchat <sayısal sohbet ID>")
             cid = int(argument.strip())
             ids = self.config["telegram"].setdefault("allowed_chat_ids", [])
             if cid not in ids:
                 ids.append(cid)
                 save_config(self.paths, self.config)
-                return f"Chat {cid} added.", None
-            return f"Chat {cid} already authorized.", None
+                return f"✅ Sohbet {cid} eklendi.", None
+            return f"ℹ️ Sohbet {cid} zaten yetkili.", None
         if command == "/removechat":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /removechat <numeric_chat_id>")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /removechat <sayısal sohbet ID>")
             cid = int(argument.strip())
             ids = self.config["telegram"].get("allowed_chat_ids", [])
             if cid in ids:
                 self.config["telegram"]["allowed_chat_ids"] = [x for x in ids if x != cid]
                 save_config(self.paths, self.config)
-                return f"Chat {cid} removed.", None
-            return f"Chat {cid} was not authorized.", None
+                return f"🗑 Sohbet {cid} kaldırıldı.", None
+            return f"ℹ️ Sohbet {cid} listede değildi.", None
         if command == "/calibrate_5h":
             return self._calibrate_window("five_hour", argument, user_id, chat_id)
         if command == "/calibrate_weekly":
             return self._calibrate_window("weekly", argument, user_id, chat_id)
         if command == "/version":
             from . import __version__
-
-            return _pretty({"application_version": __version__}), None
-        raise AppError(ErrorCode.CONFIG_INVALID, "Unknown command; use /help")
+            return f"ℹ️ Claude Window Starter *{__version__}*", None
+        raise AppError(ErrorCode.CONFIG_INVALID, "Bilinmeyen komut — /help ile komut listesini görüntüle")
 
     def _calibrate_window(
         self, window_type: str, argument: str, user_id: int, chat_id: int
@@ -424,7 +443,15 @@ class TelegramBot:
             next_at = next_window.get(window_type)
             next_iso = next_at.isoformat() if next_at else "unknown"
 
-            return f"✓ {window_type} penceresi kalibre edildi.\nAnchor: {anchor_iso}\nSonraki çalışma: {next_iso}", None
+            label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
+            user_tz = self.config.get("timezone", "UTC")
+            next_display = _fmt_dt(next_at, user_tz) if next_at else "hesaplanamadı"
+            anchor_display = _fmt_dt(anchor_iso, user_tz)
+            return (
+                f"✅ *{label} pencere kalibre edildi*\n"
+                f"Başlangıç: {anchor_display}\n"
+                f"Sonraki çalışma: {next_display}"
+            ), None
         except ValueError as exc:
             raise AppError(ErrorCode.CONFIG_INVALID, f"Invalid time format: {str(exc)}")
 
@@ -466,10 +493,10 @@ class TelegramBot:
             lambda current: current.setdefault("telegram_confirmations", {}).pop(nonce, None),
         )
         if not valid or decision not in {"confirm", "cancel"}:
-            self.api.answer_callback(callback_id, "Expired")
+            self.api.answer_callback(callback_id, "⏱ Süre doldu")
             return
         if decision == "cancel":
-            self.api.answer_callback(callback_id, "Cancelled")
+            self.api.answer_callback(callback_id, "❌ İptal edildi")
             return
         action = str(confirmation["action"])
         if action == "run":
@@ -478,12 +505,32 @@ class TelegramBot:
             config = load_config(self.paths, create=True)
             config["prompt"] = str(confirmation.get("value", ""))
             save_config(self.paths, config)
-        self.api.answer_callback(callback_id, "Started" if action == "run" else "Updated")
+        self.api.answer_callback(callback_id, "🚀 Başlatıldı" if action == "run" else "✅ Güncellendi")
 
     def run_forever(self) -> None:
         if not self.telegram["enabled"]:
             raise AppError(ErrorCode.CONFIG_INVALID, "Telegram is disabled")
         self.api.get_me()
+        try:
+            self.api.set_my_commands([
+                {"command": "status", "description": "Sistem durumu ve pencere bilgisi"},
+                {"command": "run", "description": "Claude çalıştır (onay ister)"},
+                {"command": "usage", "description": "Sonraki çalışma zamanları"},
+                {"command": "last", "description": "Son çalışma detayı"},
+                {"command": "health", "description": "Sağlık kontrolü"},
+                {"command": "logs", "description": "Son kayıtlar"},
+                {"command": "automation_on", "description": "Otomasyonu etkinleştir"},
+                {"command": "automation_off", "description": "Otomasyonu devre dışı bırak"},
+                {"command": "sleep_on", "description": "Uyku engellemeyi aç"},
+                {"command": "sleep_off", "description": "Uyku engellemeyi kapat"},
+                {"command": "calibrate_5h", "description": "5 saatlik pencereyi kalibre et (HH:MM)"},
+                {"command": "calibrate_weekly", "description": "Haftalık pencereyi kalibre et (YYYY-MM-DD HH:MM)"},
+                {"command": "users", "description": "Yetkili kullanıcıları listele"},
+                {"command": "setmodel", "description": "Model değiştir (auto/haiku/sonnet/opus)"},
+                {"command": "help", "description": "Komut listesi"},
+            ])
+        except Exception:
+            pass
         with FileLock(self.paths.bot_lock, timeout=0, error_code=ErrorCode.ALREADY_RUNNING):
             while True:
                 offset = int(load_state(self.paths).get("telegram_offset", 0))

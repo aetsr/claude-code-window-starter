@@ -80,16 +80,20 @@ class TelegramAPI:
         text: str,
         *,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str = "Markdown",
     ) -> None:
         chunks = split_message(text)
         for index, chunk in enumerate(chunks):
-            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
+            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode}
             if reply_markup is not None and index == len(chunks) - 1:
                 payload["reply_markup"] = reply_markup
             self.call("sendMessage", payload)
 
     def answer_callback(self, callback_id: str, text: str) -> None:
         self.call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:200]})
+
+    def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+        self.call("setMyCommands", {"commands": commands})
 
 
 def _encode_payload(payload: dict[str, Any]) -> dict[str, str | int]:

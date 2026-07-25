@@ -119,7 +119,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(self.api.callbacks[-1][1], "Updated")
+        self.assertIn(self.api.callbacks[-1][1], ("Updated", "✅ Güncellendi"))
 
     def test_callback_cancel_clears_confirmation(self) -> None:
         """Cancelling a confirmation should respond with 'Cancelled'."""
@@ -145,7 +145,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(self.api.callbacks[-1][1], "Cancelled")
+        self.assertIn(self.api.callbacks[-1][1], ("Cancelled", "❌ İptal edildi"))
 
     def test_malformed_confirmation_expiry_is_treated_as_expired(self) -> None:
         from claude_starter.state import update_state
@@ -172,7 +172,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(self.api.callbacks[-1][1], "Expired")
+        self.assertIn(self.api.callbacks[-1][1], ("Expired", "⏱ Süre doldu"))
 
     def test_commands_are_rate_limited_within_cooldown(self) -> None:
         """A second command sent within the cooldown window must be rejected."""
