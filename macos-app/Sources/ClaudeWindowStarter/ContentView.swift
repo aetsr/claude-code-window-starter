@@ -82,7 +82,8 @@ struct ContentView: View {
                     nextRunText: model.fiveHourNextRunText,
                     lastResult: model.fiveHourLastResultText,
                     calibrationNeeded: model.fiveHourCalibrationNeeded,
-                    calibrationError: model.fiveHourCalibrationError
+                    calibrationError: model.fiveHourCalibrationError,
+                    dateComponents: .hourAndMinute
                 )
                 windowCalibrationRow(
                     windowType: "weekly",
@@ -94,7 +95,8 @@ struct ContentView: View {
                     nextRunText: model.weeklyNextRunText,
                     lastResult: model.weeklyLastResultText,
                     calibrationNeeded: model.weeklyCalibrationNeeded,
-                    calibrationError: model.weeklyCalibrationError
+                    calibrationError: model.weeklyCalibrationError,
+                    dateComponents: [.date, .hourAndMinute]
                 )
             }
 
@@ -124,7 +126,8 @@ struct ContentView: View {
         nextRunText: String,
         lastResult: String?,
         calibrationNeeded: Bool,
-        calibrationError: String
+        calibrationError: String,
+        dateComponents: DatePickerComponents = [.date, .hourAndMinute]
     ) -> some View {
         GroupBox(title) {
             VStack(alignment: .leading, spacing: 10) {
@@ -157,7 +160,7 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
-                        DatePicker("", selection: anchorDate, displayedComponents: [.date, .hourAndMinute])
+                        DatePicker("", selection: anchorDate, displayedComponents: dateComponents)
                             .datePickerStyle(.compact)
                         Button(isCalibrated ? "Güncelle" : "Kaydet") {
                             model.saveWindowAnchor(windowType)
