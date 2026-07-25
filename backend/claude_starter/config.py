@@ -65,6 +65,20 @@ def _reject_unknown(supplied: dict[str, Any], expected: dict[str, Any], prefix: 
             _reject_unknown(value, expected_value, f"{prefix}.{key}".strip("."))
 
 
+def _strip_unknown(supplied: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *supplied* with any keys not present in *expected* removed recursively."""
+    result: dict[str, Any] = {}
+    for key, expected_value in expected.items():
+        if key not in supplied:
+            continue
+        value = supplied[key]
+        if isinstance(value, dict) and isinstance(expected_value, dict):
+            result[key] = _strip_unknown(value, expected_value)
+        else:
+            result[key] = value
+    return result
+
+
 def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
     """Convert the shipped v1 config without copying removed fields."""
     raw_version = supplied.get("schema_version", 1)
@@ -183,7 +197,9 @@ def load_config(paths: AppPaths, *, create: bool = False) -> dict[str, Any]:
     if not isinstance(supplied, dict):
         raise AppError(ErrorCode.CONFIG_INVALID, "Config root must be an object")
     migrated = migrate_config(supplied)
-    _reject_unknown(migrated, DEFAULT_CONFIG)
+    # Strip unknown fields when loading from disk (they may come from an older app version).
+    # save_config still validates strictly via validate_config → _reject_unknown.
+    migrated = _strip_unknown(migrated, DEFAULT_CONFIG)
     config = validate_config(_merge(DEFAULT_CONFIG, migrated))
     if create and not paths.config_file.exists():
         save_config(paths, config)

@@ -48,11 +48,7 @@ actor BackgroundAgent {
         let process = Process()
         process.executableURL = python
         process.arguments = command
-        process.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "LANG": "en_US.UTF-8",
-        ]
+        process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
@@ -105,11 +101,7 @@ actor BackgroundAgent {
         let process = Process()
         process.executableURL = python
         process.arguments = ["-m", "claude_starter", "--home", base.path, "--json", "run", "--automatic", "--trigger", "background"]
-        process.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "LANG": "en_US.UTF-8",
-        ]
+        process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = Pipe()
@@ -135,11 +127,7 @@ actor BackgroundAgent {
         let process = Process()
         process.executableURL = python
         process.arguments = ["-m", "claude_starter", "--home", base.path, "--json", "telegram-bot", "--token-stdin"]
-        process.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "LANG": "en_US.UTF-8",
-        ]
+        process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         let input = Pipe()
         process.standardInput = input
@@ -241,11 +229,7 @@ actor BackgroundAgent {
             "-m", "claude_starter", "--home", base.path, "--json",
             "schedule", "--network-state", state,
         ]
-        process.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "LANG": "en_US.UTF-8",
-        ]
+        process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -281,6 +265,21 @@ actor BackgroundAgent {
         } catch {
             try? FileManager.default.removeItem(at: temporary)
         }
+    }
+
+    private func agentEnvironment() -> [String: String] {
+        let userHome = FileManager.default.homeDirectoryForCurrentUser.path
+        let processEnv = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
+            "HOME": userHome,
+            "PATH": "\(userHome)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "LANG": "en_US.UTF-8",
+            "TMPDIR": processEnv["TMPDIR"] ?? FileManager.default.temporaryDirectory.path,
+        ]
+        if let user = processEnv["USER"] { env["USER"] = user }
+        if let logname = processEnv["LOGNAME"] { env["LOGNAME"] = logname }
+        if let shell = processEnv["SHELL"] { env["SHELL"] = shell }
+        return env
     }
 
     private func acquireAssertion() {

@@ -240,25 +240,6 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 ) from exc
             if not isinstance(patch, dict):
                 raise AppError(ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object")
-            allowed = {
-                "enabled",
-                "background_enabled",
-                "automation_mode",
-                "reset_grace_seconds",
-                "schedule_time",
-                "timezone",
-                "model",
-                "prompt",
-                "timeout_seconds",
-                "allow_catch_up",
-                "prevent_duplicate_daily_run",
-                "telegram",
-            }
-            unknown = set(patch) - allowed
-            if unknown:
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, f"Unsupported config fields: {sorted(unknown)}"
-                )
             config = load_config(paths, create=True)
             config = _deep_patch(config, patch)
             save_config(paths, config)

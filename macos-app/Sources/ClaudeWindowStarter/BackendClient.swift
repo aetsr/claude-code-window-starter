@@ -41,11 +41,16 @@ struct BackendClient {
             .appending(path: "ClaudeWindowStarter")
         let python = home.appending(path: "current/.venv/bin/python")
         let userHome = FileManager.default.homeDirectoryForCurrentUser.path
-        let environment: [String: String] = [
+        let processEnv = ProcessInfo.processInfo.environment
+        var environment: [String: String] = [
             "HOME": userHome,
             "PATH": "\(userHome)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "LANG": "en_US.UTF-8",
+            "TMPDIR": processEnv["TMPDIR"] ?? FileManager.default.temporaryDirectory.path,
         ]
+        if let user = processEnv["USER"] { environment["USER"] = user }
+        if let logname = processEnv["LOGNAME"] { environment["LOGNAME"] = logname }
+        if let shell = processEnv["SHELL"] { environment["SHELL"] = shell }
         let helper = Bundle.main.bundleURL
             .appending(path: "Contents/Helpers/ClaudeWindowStarterAgent")
         let useProtectedRunner = arguments.first == "run" && FileManager.default.isExecutableFile(atPath: helper.path)

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -14,6 +15,9 @@ final class AppModel: ObservableObject {
     @Published var automationBlocked = false
     @Published var nextRunText = "İlk kontrol bekleniyor"
     @Published var usageWindowText = "Henüz doğrulanmadı"
+    @Published var claudeAuthStatus = "unknown"
+    @Published var claudeLoginCommand = "claude auth login"
+    @Published var claudeAuthHint = ""
     @Published var telegramPairCode = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
 
     private let backend = BackendClient()
@@ -38,13 +42,45 @@ final class AppModel: ObservableObject {
                 statusText = renderResult(arguments: arguments, result: result)
                 if arguments.first == "status" {
                     parseStatus(result.data)
+                } else if arguments.first == "config", arguments.dropFirst().first == "get" {
+                    parseConfig(result.data)
                 } else if arguments.first == "run" {
                     parseRunResult(result.data)
-                    if let status = try? await backend.command(arguments: ["status"]) {
-                        parseStatus(status.data)
-                    }
+                    await refreshStatus(silent: true)
                 }
             } catch {
+                lastError = error.localizedDescription
+                statusText = error.localizedDescription
+            }
+        }
+    }
+
+    func loadFromBackend() {
+        busy = true
+        lastError = nil
+        Task {
+            defer { busy = false }
+            do {
+                let config = try await backend.command(arguments: ["config", "get"])
+                parseConfig(config.data)
+                await refreshStatus(silent: true)
+                statusText = "Ayarlar backend’den yüklendi."
+            } catch {
+                lastError = error.localizedDescription
+                statusText = error.localizedDescription
+            }
+        }
+    }
+
+    func refreshStatus(silent: Bool) async {
+        do {
+            let result = try await backend.command(arguments: ["status"])
+            parseStatus(result.data)
+            if !silent {
+                statusText = renderResult(arguments: ["status"], result: result)
+            }
+        } catch {
+            if !silent {
                 lastError = error.localizedDescription
                 statusText = error.localizedDescription
             }
@@ -69,31 +105,20 @@ final class AppModel: ObservableObject {
         busy = true
         lastError = nil
         let document: [String: Any] = [
-            "schema_version": 2,
             "enabled": settings.enabled,
             "background_enabled": settings.backgroundEnabled,
-            "automation_mode": "five_hour_window",
-            "reset_grace_seconds": 60,
             "schedule_time": settings.scheduleTime,
             "timezone": settings.timezone,
             "model": settings.model,
             "prompt": settings.prompt,
             "timeout_seconds": settings.timeout,
             "allow_catch_up": settings.catchUp,
-            "prevent_duplicate_daily_run": true,
             "telegram": [
                 "enabled": settings.telegramEnabled,
                 "allowed_user_ids": userID.map { [$0] } ?? [],
                 "allowed_chat_ids": chatID.map { [$0] } ?? [],
-                "allowed_channel_ids": [],
                 "notification_chat_id": settings.notificationIsChannel ? NSNull() : (notificationID.map { $0 as Any } ?? NSNull()),
                 "notification_channel_id": settings.notificationIsChannel ? (notificationID.map { $0 as Any } ?? NSNull()) : NSNull(),
-                "commands_in_private_chat_only": true,
-                "notify_success": true,
-                "notify_failure": true,
-                "command_cooldown_seconds": 3,
-                "confirmation_ttl_seconds": 60,
-                "max_prompt_length": 500,
             ],
         ]
         do {
@@ -104,9 +129,7 @@ final class AppModel: ObservableObject {
                     let result = try await backend.applyConfig(data: data)
                     try SettingsStore.save(settings)
                     statusText = renderResult(arguments: ["config", "patch-stdin"], result: result)
-                    if let status = try? await backend.command(arguments: ["status"]) {
-                        parseStatus(status.data)
-                    }
+                    await refreshStatus(silent: true)
                 } catch {
                     lastError = error.localizedDescription
                     statusText = error.localizedDescription
@@ -185,9 +208,7 @@ final class AppModel: ObservableObject {
                 }
                 statusText = parts.joined(separator: " ")
                 try SettingsStore.save(settings)
-                if let status = try? await backend.command(arguments: ["status"]) {
-                    parseStatus(status.data)
-                }
+                await refreshStatus(silent: true)
                 renewTelegramPairCode()
             } catch {
                 lastError = error.localizedDescription
@@ -198,6 +219,9 @@ final class AppModel: ObservableObject {
 
     func parseStatus(_ value: JSONValue?) {
         guard case .object(let object) = value else { return }
+        if case .bool(let value)? = object["enabled"] { settings.enabled = value }
+        if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
+        if case .bool(let value)? = object["telegram_enabled"] { settings.telegramEnabled = value }
         if case .string(let value)? = object["next_run"] { nextRunText = value }
         if case .object(let usage)? = object["usage_window"] {
             if case .bool(let verified)? = usage["verified"] {
@@ -211,9 +235,48 @@ final class AppModel: ObservableObject {
                 if case .bool(let value)? = background["network_online"] { networkOnline = value }
                 if case .bool(let value)? = background["power_assertion"] { powerAssertion = value }
             }
+            if case .object(let claude)? = checks["claude"] {
+                if case .string(let auth)? = claude["auth_status"] { claudeAuthStatus = auth }
+                if case .string(let command)? = claude["login_command"] { claudeLoginCommand = command }
+                claudeAuthHint = claudeAuthStatus == "authenticated"
+                    ? "Claude oturumu doğrulandı."
+                    : "Claude oturumu hazır değil. Terminalde `\(claudeLoginCommand)` çalıştırın."
+            }
         }
         if case .object? = object["pending_automatic"] { pendingAutomatic = true } else { pendingAutomatic = false }
         if case .object? = object["automatic_blocked"] { automationBlocked = true } else { automationBlocked = false }
+    }
+
+    func parseConfig(_ value: JSONValue?) {
+        guard case .object(let object) = value else { return }
+        if case .string(let value)? = object["schedule_time"] { settings.scheduleTime = value }
+        if case .string(let value)? = object["timezone"] { settings.timezone = value }
+        if case .string(let value)? = object["model"] { settings.model = value }
+        if case .string(let value)? = object["prompt"] { settings.prompt = value }
+        if case .number(let value)? = object["timeout_seconds"] { settings.timeout = Int(value) }
+        if case .bool(let value)? = object["enabled"] { settings.enabled = value }
+        if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
+        if case .bool(let value)? = object["allow_catch_up"] { settings.catchUp = value }
+        guard case .object(let telegram)? = object["telegram"] else { return }
+        if case .bool(let value)? = telegram["enabled"] { settings.telegramEnabled = value }
+        settings.telegramUserID = firstIDString(telegram["allowed_user_ids"])
+        settings.telegramChatID = firstIDString(telegram["allowed_chat_ids"])
+        if case .number(let value)? = telegram["notification_channel_id"] {
+            settings.notificationIsChannel = true
+            settings.notificationID = String(Int64(value))
+        } else if case .number(let value)? = telegram["notification_chat_id"] {
+            settings.notificationIsChannel = false
+            settings.notificationID = String(Int64(value))
+        } else {
+            settings.notificationID = ""
+        }
+    }
+
+    func copyClaudeLoginCommand() {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(claudeLoginCommand, forType: .string)
+        statusText = "Claude giriş komutu panoya kopyalandı: \(claudeLoginCommand)"
     }
 
     private func parseRunResult(_ value: JSONValue?) {
@@ -268,6 +331,15 @@ final class AppModel: ObservableObject {
             return flag ? on : off
         }
         return off
+    }
+
+    private func firstIDString(_ value: JSONValue?) -> String {
+        guard case .array(let items) = value,
+              let first = items.first,
+              case .number(let number) = first else {
+            return ""
+        }
+        return String(Int64(number))
     }
 
     private func plainText(_ value: JSONValue, indent: String = "") -> String {

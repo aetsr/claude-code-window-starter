@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from claude_starter.claude import _build_args, discover_claude, run_claude
+from claude_starter.claude import _build_args, _clean_environment, discover_claude, run_claude
 from claude_starter.config import DEFAULT_CONFIG
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
@@ -128,6 +128,22 @@ class ClaudeTests(unittest.TestCase):
             with self.assertRaises(AppError) as context:
                 run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=False)
         self.assertEqual(context.exception.code, ErrorCode.CLAUDE_NOT_AUTHENTICATED)
+
+    def test_clean_environment_passes_through_user_and_logname(self) -> None:
+        config = self.config()
+        with mock.patch.dict(os.environ, {"USER": "testuser", "LOGNAME": "testuser", "TMPDIR": "/tmp/test"}):
+            env = _clean_environment(self.paths, config)
+        self.assertEqual(env.get("USER"), "testuser")
+        self.assertEqual(env.get("LOGNAME"), "testuser")
+        self.assertEqual(env.get("TMPDIR"), "/tmp/test")
+        self.assertEqual(env.get("CLAUDE_CODE_SKIP_PROMPT_HISTORY"), "1")
+
+    def test_clean_environment_excludes_prohibited_keys(self) -> None:
+        config = self.config()
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_AUTH_TOKEN": "tok"}):
+            env = _clean_environment(self.paths, config)
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", env)
 
 
 if __name__ == "__main__":

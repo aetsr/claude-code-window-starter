@@ -119,3 +119,20 @@ class ConfigStateTests(unittest.TestCase):
         atomic_write_json(self.paths.state_file, {"schema_version": 2, "value": "old"})
         atomic_write_json(self.paths.state_file, {"schema_version": 2, "value": "new"})
         self.assertEqual(json.loads(self.paths.state_file.read_text())["value"], "new")
+
+    def test_v2_config_with_unknown_fields_loads_successfully(self) -> None:
+        config = json.loads(json.dumps(DEFAULT_CONFIG))
+        config["removed_legacy_field"] = "old_value"
+        config["telegram"]["legacy_notify_updates"] = True
+        atomic_write_json(self.paths.config_file, config)
+        loaded = load_config(self.paths)
+        self.assertNotIn("removed_legacy_field", loaded)
+        self.assertNotIn("legacy_notify_updates", loaded.get("telegram", {}))
+        self.assertEqual(loaded["schema_version"], 2)
+
+    def test_save_config_still_rejects_unknown_fields(self) -> None:
+        config = json.loads(json.dumps(DEFAULT_CONFIG))
+        config["telegram"]["unknown_new_field"] = True
+        with self.assertRaises(AppError) as context:
+            save_config(self.paths, config)
+        self.assertEqual(context.exception.code, ErrorCode.CONFIG_INVALID)

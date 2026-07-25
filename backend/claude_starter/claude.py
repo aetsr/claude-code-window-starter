@@ -47,6 +47,7 @@ class ClaudeCapabilities:
     help_text: str
     auth_status: str
     auth_method: str | None
+    login_command: str | None
     prohibited_credentials: list[str]
 
     def public_dict(self) -> dict[str, Any]:
@@ -108,13 +109,14 @@ def discover_claude() -> ClaudeCapabilities:
     architecture = platform.machine().lower()
     if executable is None:
         return ClaudeCapabilities(
-            None, None, architecture, "", "not_found", None, prohibited_credentials()
+            None, None, architecture, "", "not_found", None, None, prohibited_credentials()
         )
     version_process = _run_small([executable, "--version"])
     help_process = _run_small([executable, "--help"])
     auth_process = _run_small([executable, "auth", "status", "--json"])
     auth_status = "unknown"
     auth_method: str | None = None
+    login_command = _discover_login_command(executable)
     if auth_process.stdout.strip():
         try:
             auth = json.loads(auth_process.stdout)
@@ -136,8 +138,19 @@ def discover_claude() -> ClaudeCapabilities:
         help_text=help_process.stdout,
         auth_status=auth_status,
         auth_method=auth_method,
+        login_command=login_command,
         prohibited_credentials=prohibited_credentials(),
     )
+
+
+def _discover_login_command(executable: str) -> str:
+    auth_login = _run_small([executable, "auth", "login", "--help"])
+    if auth_login.returncode in {0, 1, 2}:
+        return "claude auth login"
+    direct_login = _run_small([executable, "login", "--help"])
+    if direct_login.returncode in {0, 1, 2}:
+        return "claude login"
+    return "claude auth login"
 
 
 def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str]:
@@ -152,13 +165,50 @@ def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "NO_PROXY",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "CLAUDE_CONFIG_DIR",
     }
     environment = {key: value for key, value in os.environ.items() if key in allowed}
+    # Claude Code needs USER to access macOS Keychain for subscription auth.
+    # If the parent process did not forward USER, resolve it from the OS directly.
+    if "USER" not in environment:
+        import pwd as _pwd
+
+        try:
+            environment["USER"] = _pwd.getpwuid(os.getuid()).pw_name
+        except (KeyError, AttributeError):
+            pass
+    if "LOGNAME" not in environment and "USER" in environment:
+        environment["LOGNAME"] = environment["USER"]
     environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1"
     return environment
 
 
-def _classify_failure(stderr: str, stdout: str, returncode: int) -> AppError:
+def _authentication_error(
+    capabilities: ClaudeCapabilities, reason: str | None = None
+) -> AppError:
+    login_command = capabilities.login_command or "claude auth login"
+    message = (
+        f"Claude subscription session is not available. Run `{login_command}` in Terminal, "
+        "complete login, then retry."
+    )
+    if reason:
+        message = f"{message} ({sanitize_text(reason, 160)})"
+    return AppError(
+        ErrorCode.CLAUDE_NOT_AUTHENTICATED,
+        message,
+        {"login_command": login_command, "auth_status": capabilities.auth_status},
+    )
+
+
+def _classify_failure(
+    stderr: str, stdout: str, returncode: int, capabilities: ClaudeCapabilities
+) -> AppError:
     text = f"{stderr}\n{stdout}".lower()
     if "model" in text and any(
         word in text for word in ("unavailable", "not available", "invalid model")
@@ -176,7 +226,7 @@ def _classify_failure(stderr: str, stdout: str, returncode: int) -> AppError:
     ):
         return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
     if any(word in text for word in ("not logged in", "authentication", "unauthorized", "oauth")):
-        return AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED)
+        return _authentication_error(capabilities, stderr or stdout)
     if any(
         word in text
         for word in (
@@ -262,7 +312,7 @@ def _invoke_once(
         raise AppError(ErrorCode.TIMEOUT, "Claude request timed out") from exc
     duration = round(time.monotonic() - started, 3)
     if process.returncode != 0:
-        raise _classify_failure(stderr, stdout, process.returncode or 1)
+        raise _classify_failure(stderr, stdout, process.returncode or 1, capabilities)
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -309,7 +359,7 @@ def run_claude(
             {"sources": capabilities.prohibited_credentials},
         )
     if capabilities.auth_status == "not_authenticated":
-        raise AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED)
+        raise _authentication_error(capabilities)
     now = local_now(config)
     is_automatic = trigger in {"automatic", "catch_up", "background"}
     if is_automatic and not config["enabled"]:

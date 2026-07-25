@@ -18,12 +18,48 @@ from .scheduler import next_automatic_run, next_run
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 
-HELP = """Claude Window Starter
-/status /run /dryrun /diagnose /health
-/schedule /settime HH:MM /timezone /settimezone IANA
-/enable /disable /background on|off /next /last /logs
-/model /setmodel auto|haiku|sonnet|opus /prompt /setprompt TEXT
-/timer /restarttimer /version"""
+HELP = """Claude Window Starter — Komut listesi
+
+Temel:
+/status — Mevcut durum
+/run — Claude çalıştır (onay ister)
+/dryrun — Gerçek istek göndermeden kontrol
+/usage — Kullanım penceresi bilgisi
+/last — Son çalışma detayları
+/logs — Son log kayıtları
+/help — Bu yardım menüsü
+
+Otomasyon:
+/automation_on — Otomasyonu etkinleştir
+/automation_off — Otomasyonu devre dışı bırak
+/background_on — Arka plan uyku engelini etkinleştir
+/background_off — Arka plan uyku engelini kapat
+/sleep_on — Uyku engellemeyi etkinleştir
+/sleep_off — Uyku engellemeyi kapat
+
+Servis:
+/start — Arka plan servisini başlat
+/stop — Arka plan servisini durdur
+/restart — Arka plan servisini yeniden başlat
+
+Model ve prompt:
+/model — Mevcut modeli göster
+/setmodel <auto|haiku|sonnet|opus> — Model değiştir
+/prompt — Mevcut promptu göster
+/setprompt <metin> — Prompt değiştir (onay ister)
+
+Zamanlama:
+/schedule — Sonraki otomatik çalışma zamanı
+/next — Sonraki planlı çalışma
+/settime <SS:DD> — Günlük çalışma saatini değiştir
+/timezone — Mevcut zaman dilimi
+/settimezone <iana> — Zaman dilimini değiştir
+
+Bakım:
+/health — Sağlık kontrolü
+/diagnose — Teşhis raporu
+/maintenance — Kapsamlı durum ve sağlık raporu
+/version — Uygulama sürümü"""
 
 
 class TelegramBot:
@@ -124,7 +160,7 @@ class TelegramBot:
         self.config = load_config(self.paths, create=True)
         self.telegram = self.config["telegram"]
         state = load_state(self.paths)
-        if command in {"/start", "/help"}:
+        if command == "/help":
             return HELP, None
         if command == "/status":
             return _pretty(
@@ -139,10 +175,57 @@ class TelegramBot:
                     "window_note": WINDOW_UNVERIFIED,
                 }
             ), None
+        if command == "/start":
+            _service_action("background", "start")
+            self.config["enabled"] = True
+            save_config(self.paths, self.config)
+            return "Automation enabled and background service started.", None
+        if command == "/stop":
+            _service_action("background", "stop")
+            self.config["enabled"] = False
+            save_config(self.paths, self.config)
+            return "Automation disabled and background service stopped.", None
+        if command == "/restart":
+            _service_action("background", "restart")
+            return "Background service restarted.", None
         if command == "/run":
             return "Run a real Claude subscription request?", self._confirmation(
                 user_id, chat_id, "run"
             )
+        if command == "/automation_on":
+            self.config["enabled"] = True
+            save_config(self.paths, self.config)
+            return "Automation enabled.", None
+        if command == "/automation_off":
+            self.config["enabled"] = False
+            save_config(self.paths, self.config)
+            return "Automation disabled.", None
+        if command in {"/background_on", "/sleep_on"}:
+            self.config["background_enabled"] = True
+            save_config(self.paths, self.config)
+            return "Background sleep-prevention mode enabled.", None
+        if command in {"/background_off", "/sleep_off"}:
+            self.config["background_enabled"] = False
+            save_config(self.paths, self.config)
+            return "Background sleep-prevention mode disabled.", None
+        if command == "/usage":
+            usage = state.get("usage_window")
+            if isinstance(usage, dict):
+                return _pretty(
+                    {
+                        "usage_window": usage,
+                        "next": next_automatic_run(self.paths, self.config).isoformat(),
+                        "last_run": state.get("last_run"),
+                    }
+                ), None
+            return "No usage window data yet. Run Claude once to capture it.", None
+        if command == "/maintenance":
+            return _pretty(
+                {
+                    "health": health_report(self.paths),
+                    "diagnose": diagnose(self.paths),
+                }
+            ), None
         if command == "/dryrun":
             _start_local_job("dry")
             return "Dry-run started; no Claude request will be sent.", None
@@ -376,6 +459,8 @@ def _service_action(target: str, action: str) -> dict[str, Any]:
         argv = ["/bin/launchctl", "print", f"{domain}/{label}"]
     elif action == "stop":
         argv = ["/bin/launchctl", "kill", "SIGTERM", f"{domain}/{label}"]
+    elif action == "start":
+        argv = ["/bin/launchctl", "kickstart", f"{domain}/{label}"]
     else:
         argv = ["/bin/launchctl", "kickstart", "-k", f"{domain}/{label}"]
     process = subprocess.run(
