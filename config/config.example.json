@@ -2,6 +2,8 @@
   "schema_version": 2,
   "enabled": false,
   "background_enabled": false,
+  "automation_mode": "five_hour_window",
+  "reset_grace_seconds": 60,
   "schedule_time": "08:00",
   "timezone": "Europe/Istanbul",
   "model": "auto",

@@ -1,19 +1,28 @@
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 from .errors import AppError, ErrorCode
+from .macos_trust import trusted_ssl_context
 
 
 class TelegramAPI:
-    def __init__(self, token: str, *, timeout: int = 60) -> None:
+    def __init__(
+        self,
+        token: str,
+        *,
+        timeout: int = 60,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
         self._token = token
         self._timeout = timeout
         self._base = f"https://api.telegram.org/bot{token}/"
+        self._ssl_context = ssl_context or trusted_ssl_context()
 
     def call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
         encoded = urllib.parse.urlencode(_encode_payload(payload or {})).encode("utf-8")
@@ -26,13 +35,14 @@ class TelegramAPI:
             with urllib.request.urlopen(  # noqa: S310  # nosec B310
                 request,
                 timeout=self._timeout,
+                context=self._ssl_context,
             ) as response:
                 body = response.read(2 * 1024 * 1024)
         except urllib.error.HTTPError as exc:
             raise AppError(ErrorCode.TELEGRAM_API_ERROR, f"Telegram HTTP error {exc.code}") from exc
         except urllib.error.URLError as exc:
             raise AppError(
-                ErrorCode.NETWORK_UNAVAILABLE, "Telegram network request failed"
+                ErrorCode.TELEGRAM_API_ERROR, "Telegram network request failed"
             ) from exc
         try:
             result = json.loads(body)

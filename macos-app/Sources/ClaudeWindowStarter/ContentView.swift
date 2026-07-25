@@ -60,13 +60,13 @@ struct ContentView: View {
             StatusPill(title: "Otomasyon", value: model.settings.enabled ? "Açık" : "Kapalı", color: model.settings.enabled ? .green : .secondary)
             StatusPill(title: "Telegram", value: model.settings.telegramEnabled ? "Açık" : "Kapalı", color: model.settings.telegramEnabled ? .green : .secondary)
             if model.pendingAutomatic { StatusPill(title: "Çalışma", value: "Bekliyor", color: .orange) }
+            if model.automationBlocked { StatusPill(title: "Otomasyon", value: "Müdahale gerekli", color: .red) }
         }
     }
 
     private var claude: some View {
         Form {
-            Toggle("Günlük otomasyonu etkinleştir", isOn: $model.settings.enabled)
-            TextField("Günlük saat (HH:MM)", text: $model.settings.scheduleTime)
+            Toggle("5 saatlik pencere otomasyonunu etkinleştir", isOn: $model.settings.enabled)
             TextField("IANA zaman dilimi", text: $model.settings.timezone)
             Picker("Model", selection: $model.settings.model) {
                 ForEach(["auto", "haiku", "sonnet", "opus"], id: \.self, content: Text.init)
@@ -74,11 +74,13 @@ struct ContentView: View {
             TextField("Prompt", text: $model.settings.prompt, axis: .vertical)
             Stepper("Timeout: \(model.settings.timeout) saniye", value: $model.settings.timeout, in: 10...1800)
             Toggle("İnternet geri geldiğinde bekleyen çalışmayı dene", isOn: $model.settings.catchUp)
+            LabeledContent("Sonraki çalışma", value: model.nextRunText)
+            LabeledContent("Reset doğrulaması", value: model.usageWindowText)
             HStack {
                 Button("Şimdi çalıştır") { model.perform(["run", "--manual", "--trigger", "macos_ui"]) }
                 Button("Dry-run") { model.perform(["run", "--dry-run", "--trigger", "macos_ui"]) }
             }
-            Text("Başarılı istek, Claude’un beş saatlik kullanım penceresinin başladığını tek başına kanıtlamaz.")
+            Text("İlk etkinleştirmede küçük bir gerçek prompt gönderilir. Claude Code rate_limits alanı varsa resmî reset zamanı; yoksa başarıdan beş saat sonrası kullanılır.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding()
@@ -94,6 +96,20 @@ struct ContentView: View {
             TextField("Bildirim sohbet/kanal ID", text: $model.settings.notificationID)
             Toggle("Bildirim hedefi kanal", isOn: $model.settings.notificationIsChannel)
             Button("Telegram bağlantısını test et") { model.telegramTest() }
+            Text("Test yalnız Keychain tokenıyla Bot API kimliğini doğrular. Botun komut alması için kullanıcı ve özel sohbet ID’leri girilip ayarlar kaydedilmelidir.")
+                .font(.caption).foregroundStyle(.secondary)
+            GroupBox("Güvenli özel sohbet eşleştirme") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Bota şu mesajı gönderin:")
+                    Text("/pair \(model.telegramPairCode)")
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                    HStack {
+                        Button("Eşleştir ve etkinleştir") { model.pairTelegram() }
+                        Button("Yeni kod") { model.renewTelegramPairCode() }
+                    }
+                }
+            }
             HStack {
                 Button("Botu başlat") { model.perform(["service", "telegram", "start"]) }
                 Button("Botu durdur") { model.perform(["service", "telegram", "stop"]) }

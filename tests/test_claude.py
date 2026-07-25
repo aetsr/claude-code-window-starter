@@ -26,6 +26,14 @@ elif "--help" in sys.argv:
     )
 elif "auth" in sys.argv:
     print(json.dumps({{"authenticated": True, "method": "oauth"}}))
+elif "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "sonnet":
+    print(json.dumps({{
+        "result": "OK",
+        "model": "claude-sonnet-test",
+        "rate_limits": {{
+            "five_hour": {{"used_percentage": 1.5, "resets_at": 2000000000}}
+        }},
+    }}))
 elif "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "haiku":
     print(json.dumps({{
         "result": "OK",
@@ -77,6 +85,8 @@ class ClaudeTests(unittest.TestCase):
         self.assertIn("--tools", arguments)
         self.assertIn("--setting-sources", arguments)
         self.assertIn("--strict-mcp-config", arguments)
+        mcp_index = arguments.index("--mcp-config")
+        self.assertEqual(arguments[mcp_index + 1], '{"mcpServers":{}}')
 
     def test_auto_model_uses_haiku_and_records_unverified_window(self) -> None:
         result = run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=False)
@@ -84,20 +94,40 @@ class ClaudeTests(unittest.TestCase):
         self.assertEqual(result["selected_model"], "claude-haiku-test")
         self.assertFalse(result["usage_window_verification"]["verified"])
 
-    def test_background_trigger_counts_as_automatic_and_is_once_daily(self) -> None:
+    def test_official_rate_limit_reset_is_persisted_and_verified(self) -> None:
+        config = self.config()
+        config["model"] = "sonnet"
+        result = run_claude(self.paths, config, trigger="macos_ui", dry_run=False)
+        self.assertTrue(result["usage_window_verification"]["verified"])
+        state = json.loads(self.paths.state_file.read_text(encoding="utf-8"))
+        self.assertEqual(
+            state["usage_window"]["rate_limits"]["five_hour"]["resets_at"],
+            2_000_000_000,
+        )
+        self.assertTrue(state["next_window_run_at"].startswith("2033-05-18T03:34:"))
+
+    def test_background_trigger_starts_one_five_hour_window(self) -> None:
         config = self.config()
         config["enabled"] = True
         result = run_claude(self.paths, config, trigger="background", dry_run=False)
         self.assertTrue(result["real_request_sent"])
         with self.assertRaises(AppError) as context:
             run_claude(self.paths, config, trigger="background", dry_run=False)
-        self.assertEqual(context.exception.code, ErrorCode.ALREADY_RAN_TODAY)
+        self.assertEqual(context.exception.code, ErrorCode.WINDOW_NOT_DUE)
 
     def test_api_key_stops_real_execution(self) -> None:
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "not-logged"}):
             with self.assertRaises(AppError) as context:
                 run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=False)
         self.assertEqual(context.exception.code, ErrorCode.API_KEY_DETECTED)
+
+    def test_explicit_unauthenticated_status_stops_before_request(self) -> None:
+        capabilities = discover_claude()
+        capabilities.auth_status = "not_authenticated"
+        with mock.patch("claude_starter.claude.discover_claude", return_value=capabilities):
+            with self.assertRaises(AppError) as context:
+                run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=False)
+        self.assertEqual(context.exception.code, ErrorCode.CLAUDE_NOT_AUTHENTICATED)
 
 
 if __name__ == "__main__":

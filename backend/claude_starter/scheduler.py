@@ -33,16 +33,27 @@ def automatic_due(paths: AppPaths, config: dict[str, Any], now: datetime | None 
     if not config["enabled"]:
         return False
     state = load_state(paths)
+    if state.get("automatic_blocked"):
+        return False
+    utc_now = now.astimezone(timezone.utc) if now is not None else datetime.now(timezone.utc)
     pending = state.get("pending_automatic")
     if pending:
         retry_at = state.get("next_automatic_retry_at")
         if isinstance(retry_at, str):
             try:
-                if datetime.now(timezone.utc) < datetime.fromisoformat(retry_at):
+                if utc_now < datetime.fromisoformat(retry_at):
                     return False
             except ValueError:
                 pass
         return True
+    if config.get("automation_mode") == "five_hour_window":
+        next_window = state.get("next_window_run_at")
+        if not isinstance(next_window, str):
+            return True
+        try:
+            return utc_now >= datetime.fromisoformat(next_window)
+        except ValueError:
+            return True
     date = due_date(config, now)
     return bool(
         config["allow_catch_up"]
@@ -52,7 +63,14 @@ def automatic_due(paths: AppPaths, config: dict[str, Any], now: datetime | None 
     )
 
 
-def mark_pending(paths: AppPaths, config: dict[str, Any], reason: str) -> None:
+def mark_pending(
+    paths: AppPaths,
+    config: dict[str, Any],
+    reason: str,
+    *,
+    minimum_delay: int = 30,
+    maximum_delay: int = 900,
+) -> None:
     current = local_now(config)
     date = due_date(config, current) or current.date().isoformat()
 
@@ -61,11 +79,18 @@ def mark_pending(paths: AppPaths, config: dict[str, Any], reason: str) -> None:
     def update(state: dict[str, Any]) -> None:
         pending = state.get("pending_automatic")
         attempts = int(pending.get("attempts", 0)) + 1 if isinstance(pending, dict) else 1
-        delay = min(900, 30 * (2 ** min(attempts - 1, 5)))
+        delay = max(minimum_delay, min(maximum_delay, 30 * (2 ** min(attempts - 1, 7))))
         if not isinstance(pending, dict):
+            scheduled_at = (
+                state.get("next_window_run_at")
+                if config.get("automation_mode") == "five_hour_window"
+                else scheduled_time(config, current).isoformat()
+            )
             state["pending_automatic"] = {
                 "scheduled_date": date,
-                "scheduled_at": scheduled_time(config, current).isoformat(),
+                "scheduled_at": scheduled_at
+                if isinstance(scheduled_at, str)
+                else current.isoformat(),
                 "reason": reason,
                 "first_seen_at": current.isoformat(),
                 "attempts": attempts,
@@ -73,7 +98,9 @@ def mark_pending(paths: AppPaths, config: dict[str, Any], reason: str) -> None:
         else:
             pending["reason"] = reason
             pending["attempts"] = attempts
-        state["next_automatic_retry_at"] = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
+        state["next_automatic_retry_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=delay)
+        ).isoformat()
 
     update_state(paths, update)
 
@@ -90,3 +117,16 @@ def clear_pending(paths: AppPaths) -> None:
 
 def catch_up_due(paths: AppPaths, config: dict[str, Any], now: datetime | None = None) -> bool:
     return automatic_due(paths, config, now)
+
+
+def next_automatic_run(paths: AppPaths, config: dict[str, Any]) -> datetime:
+    state = load_state(paths)
+    if config.get("automation_mode") == "five_hour_window":
+        value = state.get("next_window_run_at")
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                pass
+        return datetime.now(timezone.utc)
+    return next_run(config)

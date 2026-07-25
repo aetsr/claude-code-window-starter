@@ -14,19 +14,21 @@ from typing import Any
 
 from . import __version__
 from .claude import run_claude
-from .config import load_config, local_now, save_config, set_config_value
+from .config import load_config, save_config, set_config_value
 from .errors import AppError, ErrorCode
 from .health import diagnose, health_report
 from .io_utils import atomic_write_bytes
 from .logging_utils import log_event, rotate_logs, sanitize
 from .paths import AppPaths
-from .scheduler import automatic_due, clear_pending, mark_pending, next_run
-from .state import load_state
+from .scheduler import automatic_due, clear_pending, mark_pending, next_automatic_run
+from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 from .telegram_bot import TelegramBot, notify
 
 
-def envelope(ok: bool, status: str, data: Any = None, error: AppError | None = None) -> dict[str, Any]:
+def envelope(
+    ok: bool, status: str, data: Any = None, error: AppError | None = None
+) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "ok": ok,
@@ -67,12 +69,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     schedule = sub.add_parser("schedule")
     schedule.add_argument("--apply-launchd", action="store_true")
+    schedule.add_argument(
+        "--network-state",
+        choices=["online", "offline"],
+        help=argparse.SUPPRESS,
+    )
 
     bot = sub.add_parser("telegram-bot")
     bot.add_argument("--token-stdin", action="store_true")
     telegram_test = sub.add_parser("telegram-test")
     telegram_test.add_argument("--no-message", action="store_true")
     telegram_test.add_argument("--token-stdin", action="store_true")
+    telegram_pair = sub.add_parser("telegram-pair")
+    telegram_pair.add_argument("--code", required=True)
+    telegram_pair.add_argument("--token-stdin", action="store_true")
 
     releases = sub.add_parser("releases")
     releases.add_argument("--limit", type=int, default=20)
@@ -95,12 +105,15 @@ def _status(paths: AppPaths) -> dict[str, Any]:
         "enabled": config["enabled"],
         "background_enabled": config["background_enabled"],
         "telegram_enabled": config["telegram"]["enabled"],
+        "automation_mode": config["automation_mode"],
         "schedule_time": config["schedule_time"],
         "timezone": config["timezone"],
-        "next_run": next_run(config).isoformat(),
+        "next_run": next_automatic_run(paths, config).isoformat(),
         "automatic_due": automatic_due(paths, config),
         "pending_automatic": state.get("pending_automatic"),
+        "automatic_blocked": state.get("automatic_blocked"),
         "last_run": state.get("last_run"),
+        "usage_window": state.get("usage_window"),
         "health": health_report(paths),
     }
 
@@ -126,18 +139,24 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         return "healthy", data
     if command == "run":
         config = load_config(paths, create=True)
-        is_automatic = bool(args.automatic or args.trigger in {"automatic", "catch_up", "background"})
+        is_automatic = bool(
+            args.automatic or args.trigger in {"automatic", "catch_up", "background"}
+        )
         if is_automatic and not config["enabled"]:
             return "disabled", {"real_request_sent": False, "reason": "automation_disabled"}
         if is_automatic and not args.dry_run and not automatic_due(paths, config):
-            return "not_due", {"real_request_sent": False, "reason": "scheduled_time_not_reached"}
+            return "not_due", {"real_request_sent": False, "reason": "usage_window_not_due"}
         trigger = args.trigger or ("background" if is_automatic else "macos_ui")
         started = datetime.now(timezone.utc).isoformat()
         try:
             result = run_claude(paths, config, trigger=trigger, dry_run=bool(args.dry_run))
             if is_automatic and not args.dry_run:
                 clear_pending(paths)
-            if not args.dry_run and config["telegram"]["enabled"] and config["telegram"]["notify_success"]:
+            if (
+                not args.dry_run
+                and config["telegram"]["enabled"]
+                and config["telegram"]["notify_success"]
+            ):
                 notify(
                     paths,
                     f"Claude request succeeded. Model: {result['selected_model']}\n"
@@ -152,23 +171,44 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 ErrorCode.ALREADY_RUNNING,
             }:
                 mark_pending(paths, config, exc.code.value)
-                return "pending_connectivity" if exc.code != ErrorCode.ALREADY_RUNNING else "pending", {
+                return (
+                    "pending_connectivity" if exc.code != ErrorCode.ALREADY_RUNNING else "pending",
+                    {
+                        "real_request_sent": False,
+                        "reason": exc.code.value,
+                        "pending": True,
+                    },
+                )
+            if is_automatic and exc.code == ErrorCode.RATE_OR_USAGE_LIMIT:
+                mark_pending(
+                    paths,
+                    config,
+                    exc.code.value,
+                    minimum_delay=900,
+                    maximum_delay=3600,
+                )
+                return "pending_limit", {
                     "real_request_sent": False,
                     "reason": exc.code.value,
                     "pending": True,
                 }
+            if is_automatic and exc.code in {
+                ErrorCode.ALREADY_RAN_TODAY,
+                ErrorCode.WINDOW_NOT_DUE,
+            }:
+                return "skipped", {"real_request_sent": False, "reason": exc.code.value}
             if is_automatic:
-                current_date = local_now(config).date().isoformat()
-                from .state import update_state
+                error_code = exc.code.value
 
                 def block_automatic(state: dict[str, Any]) -> None:
-                    state["automatic_blocked_date"] = current_date
+                    state["automatic_blocked"] = {
+                        "error_code": error_code,
+                        "blocked_at": datetime.now(timezone.utc).isoformat(),
+                    }
                     state["pending_automatic"] = None
                     state["next_automatic_retry_at"] = None
 
                 update_state(paths, block_automatic)
-            if is_automatic and exc.code == ErrorCode.ALREADY_RAN_TODAY:
-                return "skipped", {"real_request_sent": False, "reason": exc.code.value}
             log_event(
                 paths,
                 {
@@ -195,30 +235,68 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             try:
                 patch = json.load(sys.stdin)
             except json.JSONDecodeError as exc:
-                raise AppError(ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object") from exc
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object"
+                ) from exc
             if not isinstance(patch, dict):
                 raise AppError(ErrorCode.CONFIG_INVALID, "stdin must contain a JSON object")
             allowed = {
-                "enabled", "background_enabled", "schedule_time", "timezone", "model",
-                "prompt", "timeout_seconds", "allow_catch_up", "prevent_duplicate_daily_run",
+                "enabled",
+                "background_enabled",
+                "automation_mode",
+                "reset_grace_seconds",
+                "schedule_time",
+                "timezone",
+                "model",
+                "prompt",
+                "timeout_seconds",
+                "allow_catch_up",
+                "prevent_duplicate_daily_run",
                 "telegram",
             }
             unknown = set(patch) - allowed
             if unknown:
-                raise AppError(ErrorCode.CONFIG_INVALID, f"Unsupported config fields: {sorted(unknown)}")
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, f"Unsupported config fields: {sorted(unknown)}"
+                )
             config = load_config(paths, create=True)
             config = _deep_patch(config, patch)
             save_config(paths, config)
+            update_state(paths, lambda state: state.__setitem__("automatic_blocked", None))
             return "success", config
         try:
             value = json.loads(args.value)
         except json.JSONDecodeError:
             value = args.value
-        return "success", set_config_value(paths, args.key, value)
+        updated = set_config_value(paths, args.key, value)
+        update_state(paths, lambda state: state.__setitem__("automatic_blocked", None))
+        return "success", updated
     if command == "schedule":
         config = load_config(paths, create=True)
+        if args.network_state == "offline":
+            if config["enabled"] and automatic_due(paths, config):
+                mark_pending(paths, config, ErrorCode.NETWORK_UNAVAILABLE.value)
+            return "connectivity_recorded", {"online": False}
+        if args.network_state == "online":
+            state = load_state(paths)
+            pending = state.get("pending_automatic")
+            if isinstance(pending, dict) and pending.get("reason") in {
+                ErrorCode.NETWORK_UNAVAILABLE.value,
+                ErrorCode.DNS_FAILURE.value,
+            }:
+                update_state(
+                    paths,
+                    lambda current: current.__setitem__(
+                        "next_automatic_retry_at",
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+            return "connectivity_recorded", {"online": True}
         path = _write_launchd_schedule(config) if args.apply_launchd else None
-        return "success", {"next_run": next_run(config).isoformat(), "launchd_plist": str(path) if path else None}
+        return "success", {
+            "next_run": next_automatic_run(paths, config).isoformat(),
+            "launchd_plist": str(path) if path else None,
+        }
     if command == "telegram-bot":
         token = _read_token_stdin() if args.token_stdin else ""
         TelegramBot(paths, token=token).run_forever()
@@ -231,14 +309,53 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         target = config.get("notification_channel_id") or config.get("notification_chat_id")
         if type(target) is int and not args.no_message:
             api.send_message(target, "Claude Window Starter Telegram test succeeded.")
-        return "success", {"bot_id": identity.get("id"), "username": identity.get("username"), "message_sent": type(target) is int and not args.no_message}
+        return "success", {
+            "bot_id": identity.get("id"),
+            "username": identity.get("username"),
+            "message_sent": type(target) is int and not args.no_message,
+        }
+    if command == "telegram-pair":
+        if not args.token_stdin:
+            raise AppError(ErrorCode.TELEGRAM_TOKEN_MISSING)
+        code = str(args.code).strip().upper()
+        if not code.isalnum() or not 6 <= len(code) <= 16:
+            raise AppError(ErrorCode.TELEGRAM_PAIRING_FAILED, "Pairing code is invalid")
+        api = TelegramAPI(_read_token_stdin(), timeout=15)
+        updates = api.get_updates(0, timeout=0)
+        user_id, chat_id, next_offset = _find_pairing(updates, code)
+        api.send_message(chat_id, "Claude Window Starter eşleştirmesi tamamlandı.")
+        config = load_config(paths, create=True)
+        config["telegram"]["allowed_user_ids"] = [user_id]
+        config["telegram"]["allowed_chat_ids"] = [chat_id]
+        config["telegram"]["notification_chat_id"] = chat_id
+        config["telegram"]["notification_channel_id"] = None
+        config["telegram"]["enabled"] = True
+        save_config(paths, config)
+        update_state(
+            paths,
+            lambda state: state.__setitem__("telegram_offset", next_offset),
+        )
+        service_restarted = True
+        try:
+            _service_action("telegram", "restart")
+        except AppError:
+            service_restarted = False
+        return "success", {
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "enabled": True,
+            "message_sent": True,
+            "service_restarted": service_restarted,
+        }
     if command == "releases":
         from .releases import ReleaseManager
 
         return "success", ReleaseManager(paths).list_releases()[: max(1, min(args.limit, 100))]
     if command == "rollback":
         if not args.yes:
-            raise AppError(ErrorCode.CONFIG_INVALID, "Rollback requires --yes after explicit confirmation")
+            raise AppError(
+                ErrorCode.CONFIG_INVALID, "Rollback requires --yes after explicit confirmation"
+            )
         from .releases import ReleaseManager
 
         return "success", ReleaseManager(paths).rollback(args.release)
@@ -262,37 +379,111 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         status, data = execute(args, paths)
         result = envelope(True, status, data)
-        print(json.dumps(result, ensure_ascii=False, indent=2, default=str) if json_output else _human(result))
+        print(
+            json.dumps(result, ensure_ascii=False, indent=2, default=str)
+            if json_output
+            else _human(result)
+        )
         return 0
     except AppError as exc:
         result = envelope(False, "error", error=exc)
-        print(json.dumps(result, ensure_ascii=False, indent=2) if json_output else f"{exc.code.value}: {exc.message}", file=sys.stderr)
+        print(
+            json.dumps(result, ensure_ascii=False, indent=2)
+            if json_output
+            else f"{exc.code.value}: {exc.message}",
+            file=sys.stderr,
+        )
         return _exit_code(exc.code)
     except KeyboardInterrupt:
         return 130
 
 
 def _human(result: dict[str, Any]) -> str:
-    return json.dumps(result["data"], ensure_ascii=False, indent=2, default=str) if result["ok"] else f"{result['error']['code']}: {result['error']['message']}"
+    return (
+        json.dumps(result["data"], ensure_ascii=False, indent=2, default=str)
+        if result["ok"]
+        else f"{result['error']['code']}: {result['error']['message']}"
+    )
 
 
 def _deep_patch(target: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     result = dict(target)
     for key, value in patch.items():
-        result[key] = _deep_patch(result[key], value) if isinstance(value, dict) and isinstance(result.get(key), dict) else value
+        result[key] = (
+            _deep_patch(result[key], value)
+            if isinstance(value, dict) and isinstance(result.get(key), dict)
+            else value
+        )
     return result
+
+
+def _find_pairing(updates: list[dict[str, Any]], code: str) -> tuple[int, int, int]:
+    matches: list[tuple[int, int, int]] = []
+    for update in updates:
+        message = update.get("message")
+        if not isinstance(message, dict):
+            continue
+        sender, chat, message_text = (
+            message.get("from"),
+            message.get("chat"),
+            message.get("text"),
+        )
+        if (
+            not isinstance(sender, dict)
+            or not isinstance(chat, dict)
+            or not isinstance(message_text, str)
+        ):
+            continue
+        user_id, chat_id, update_id = (
+            sender.get("id"),
+            chat.get("id"),
+            update.get("update_id"),
+        )
+        if type(user_id) is not int or type(chat_id) is not int or type(update_id) is not int:
+            continue
+        parts = message_text.strip().split()
+        command_name = parts[0].split("@", 1)[0].lower() if parts else ""
+        if (
+            chat.get("type") == "private"
+            and command_name == "/pair"
+            and len(parts) == 2
+            and parts[1].upper() == code
+        ):
+            matches.append((user_id, chat_id, update_id))
+    unique = {(user_id, chat_id) for user_id, chat_id, _ in matches}
+    if len(unique) != 1:
+        raise AppError(
+            ErrorCode.TELEGRAM_PAIRING_FAILED,
+            "Send the displayed /pair code to the bot in one private chat, then retry",
+        )
+    user_id, chat_id = next(iter(unique))
+    next_offset = max(item[2] for item in matches) + 1
+    return user_id, chat_id, next_offset
 
 
 def _exit_code(code: ErrorCode) -> int:
     if code in {ErrorCode.CONFIG_INVALID, ErrorCode.UNSUPPORTED_ARCH, ErrorCode.UNSUPPORTED_OS}:
         return 2
-    if code in {ErrorCode.API_KEY_DETECTED, ErrorCode.CLAUDE_NOT_AUTHENTICATED, ErrorCode.CLAUDE_SESSION_EXPIRED}:
+    if code in {
+        ErrorCode.API_KEY_DETECTED,
+        ErrorCode.CLAUDE_NOT_AUTHENTICATED,
+        ErrorCode.CLAUDE_SESSION_EXPIRED,
+    }:
         return 3
     if code.value.startswith("TELEGRAM_"):
         return 6
-    if code in {ErrorCode.ROLLBACK_FAILED, ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE, ErrorCode.INVALID_RELEASE}:
+    if code in {
+        ErrorCode.ROLLBACK_FAILED,
+        ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE,
+        ErrorCode.INVALID_RELEASE,
+    }:
         return 8
-    if code in {ErrorCode.HEALTH_CHECK_FAILED, ErrorCode.LAUNCHD_FAILED, ErrorCode.RELEASE_PREPARATION_FAILED, ErrorCode.SYMLINK_SWITCH_FAILED}:
+    if code in {
+        ErrorCode.HEALTH_CHECK_FAILED,
+        ErrorCode.LAUNCHD_FAILED,
+        ErrorCode.RELEASE_PREPARATION_FAILED,
+        ErrorCode.SYMLINK_SWITCH_FAILED,
+    }:
         return 7
     return 4
 
@@ -310,7 +501,9 @@ def _service_action(target: str, action: str) -> dict[str, Any]:
     else:
         argv = [launchctl, "kickstart", "-k" if action == "restart" else "", f"{domain}/{label}"]
         argv = [item for item in argv if item]
-    process = subprocess.run(argv, capture_output=True, text=True, timeout=20, check=False, shell=False)
+    process = subprocess.run(
+        argv, capture_output=True, text=True, timeout=20, check=False, shell=False
+    )
     if process.returncode != 0:
         raise AppError(ErrorCode.LAUNCHD_FAILED, f"Unable to {action} {target} service")
     return {"label": label, "action": action, "output": process.stdout.strip()}
@@ -318,7 +511,11 @@ def _service_action(target: str, action: str) -> dict[str, Any]:
 
 def _write_launchd_schedule(config: dict[str, Any]) -> Path:
     override = os.environ.get("CLAUDE_STARTER_LAUNCHD_PLIST")
-    path = Path(override) if override else Path.home() / "Library/LaunchAgents/com.openai.claude-window-starter.background.plist"
+    path = (
+        Path(override)
+        if override
+        else Path.home() / "Library/LaunchAgents/com.openai.claude-window-starter.background.plist"
+    )
     try:
         document = plistlib.loads(path.read_bytes())
         hour, minute = (int(part) for part in config["schedule_time"].split(":"))

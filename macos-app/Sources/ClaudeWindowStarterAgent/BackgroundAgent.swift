@@ -7,13 +7,16 @@ actor BackgroundAgent {
     private let mode: String
     private let base: URL
     private let configURL: URL
+    private let stateURL: URL
     private let statusURL: URL
     private let command: [String]
     private var monitor: NWPathMonitor?
     private var online = false
     private var networkGeneration = 0
     private var assertion: IOPMAssertionID = 0
+    private var runAssertion: IOPMAssertionID = 0
     private var processRunning = false
+    private var lastOfflineSignal = Date.distantPast
 
     init(mode: String, command: [String] = []) {
         self.mode = mode
@@ -21,12 +24,14 @@ actor BackgroundAgent {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         self.base = appSupport.appending(path: "ClaudeWindowStarter")
         self.configURL = self.base.appending(path: "shared/config/config.json")
+        self.stateURL = self.base.appending(path: "shared/state/state.json")
         self.statusURL = self.base.appending(path: "shared/runtime/background.json")
     }
 
     func run() async {
         if mode == "run" {
             await runProtectedCommand()
+            return
         } else if mode == "telegram" {
             await runTelegramSupervisor()
             return
@@ -38,8 +43,8 @@ actor BackgroundAgent {
         guard !command.isEmpty else { return }
         let python = base.appending(path: "current/.venv/bin/python")
         guard FileManager.default.isExecutableFile(atPath: python.path) else { return }
-        acquireAssertion()
-        defer { releaseAssertion() }
+        acquireRunAssertion()
+        defer { releaseRunAssertion() }
         let process = Process()
         process.executableURL = python
         process.arguments = command
@@ -75,8 +80,12 @@ actor BackgroundAgent {
                 releaseAssertion()
             }
             writeStatus(enabled: enabled, automationEnabled: automationEnabled)
-            if automationEnabled && online && !processRunning {
+            if automationEnabled && online && !processRunning && automaticDue(config: config) {
                 await runAutomatic()
+            } else if automationEnabled && !online &&
+                        Date().timeIntervalSince(lastOfflineSignal) >= 30 {
+                lastOfflineSignal = Date()
+                await signalConnectivity("offline")
             }
             // Re-read config frequently so turning the segment off releases the assertion promptly.
             try? await Task.sleep(for: .seconds(5))
@@ -86,7 +95,11 @@ actor BackgroundAgent {
 
     private func runAutomatic() async {
         processRunning = true
-        defer { processRunning = false }
+        acquireRunAssertion()
+        defer {
+            releaseRunAssertion()
+            processRunning = false
+        }
         let python = base.appending(path: "current/.venv/bin/python")
         guard FileManager.default.isExecutableFile(atPath: python.path) else { return }
         let process = Process()
@@ -150,11 +163,57 @@ actor BackgroundAgent {
         return config
     }
 
-    private func networkPathChanged(_ value: Bool) {
+    private func readState() -> [String: Any] {
+        guard let data = try? Data(contentsOf: stateURL),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let state = object as? [String: Any] else { return [:] }
+        return state
+    }
+
+    private func parseISO8601(_ value: Any?) -> Date? {
+        guard let text = value as? String else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatter.date(from: text) {
+            return parsed
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
+
+    private func automaticDue(config: [String: Any]) -> Bool {
+        let state = readState()
+        if let blocked = state["automatic_blocked"], !(blocked is NSNull) {
+            if let details = blocked as? [String: Any] {
+                if !details.isEmpty {
+                    return false
+                }
+            } else {
+                return false
+            }
+        }
+        if state["pending_automatic"] is [String: Any] {
+            if let retryAt = parseISO8601(state["next_automatic_retry_at"]) {
+                return Date() >= retryAt
+            }
+            return true
+        }
+        let mode = (config["automation_mode"] as? String) ?? "five_hour_window"
+        if mode == "five_hour_window" {
+            if let nextWindow = parseISO8601(state["next_window_run_at"]) {
+                return Date() >= nextWindow
+            }
+            return true
+        }
+        return true
+    }
+
+    private func networkPathChanged(_ value: Bool) async {
         networkGeneration += 1
         let generation = networkGeneration
         if !value {
             online = false
+            await signalConnectivity("offline")
             writeStatus(enabled: readConfig()["background_enabled"] as? Bool ?? false,
                         automationEnabled: readConfig()["enabled"] as? Bool ?? false)
             return
@@ -168,8 +227,35 @@ actor BackgroundAgent {
     private func confirmNetwork(generation: Int) {
         guard generation == networkGeneration else { return }
         online = true
+        Task { await self.signalConnectivity("online") }
         writeStatus(enabled: readConfig()["background_enabled"] as? Bool ?? false,
                     automationEnabled: readConfig()["enabled"] as? Bool ?? false)
+    }
+
+    private func signalConnectivity(_ state: String) async {
+        let python = base.appending(path: "current/.venv/bin/python")
+        guard FileManager.default.isExecutableFile(atPath: python.path) else { return }
+        let process = Process()
+        process.executableURL = python
+        process.arguments = [
+            "-m", "claude_starter", "--home", base.path, "--json",
+            "schedule", "--network-state", state,
+        ]
+        process.environment = [
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "LANG": "en_US.UTF-8",
+        ]
+        process.currentDirectoryURL = base.appending(path: "shared/runtime")
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func writeStatus(enabled: Bool, automationEnabled: Bool) {
@@ -177,7 +263,7 @@ actor BackgroundAgent {
             "enabled": enabled,
             "automation_enabled": automationEnabled,
             "network_online": online,
-            "power_assertion": assertion != 0,
+            "power_assertion": assertion != 0 || runAssertion != 0,
             "checked_at": ISO8601DateFormatter().string(from: Date()),
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else { return }
@@ -213,6 +299,24 @@ actor BackgroundAgent {
         guard assertion != 0 else { return }
         IOPMAssertionRelease(assertion)
         assertion = 0
+    }
+
+    private func acquireRunAssertion() {
+        guard runAssertion == 0 else { return }
+        let reason = "Claude Window Starter active Claude request"
+        let result = IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason as CFString,
+            &runAssertion
+        )
+        if result != kIOReturnSuccess { runAssertion = 0 }
+    }
+
+    private func releaseRunAssertion() {
+        guard runAssertion != 0 else { return }
+        IOPMAssertionRelease(runAssertion)
+        runAssertion = 0
     }
 }
 

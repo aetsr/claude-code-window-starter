@@ -14,7 +14,7 @@ from .health import diagnose, health_report
 from .locks import FileLock
 from .logging_utils import log_event, tail_sanitized
 from .paths import AppPaths
-from .scheduler import next_run
+from .scheduler import next_automatic_run, next_run
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 
@@ -52,11 +52,15 @@ class TelegramBot:
             return False
         update_state(
             self.paths,
-            lambda current: current.setdefault("telegram_rate_limits", {}).__setitem__(str(user_id), now),
+            lambda current: current.setdefault("telegram_rate_limits", {}).__setitem__(
+                str(user_id), now
+            ),
         )
         return True
 
-    def _confirmation(self, user_id: int, chat_id: int, action: str, value: str = "") -> dict[str, Any]:
+    def _confirmation(
+        self, user_id: int, chat_id: int, action: str, value: str = ""
+    ) -> dict[str, Any]:
         nonce = secrets.token_urlsafe(12)
         expiry = time.time() + int(self.telegram["confirmation_ttl_seconds"])
 
@@ -70,10 +74,14 @@ class TelegramBot:
             }
 
         update_state(self.paths, store)
-        return {"inline_keyboard": [[
-            {"text": "Confirm", "callback_data": f"confirm:{nonce}"},
-            {"text": "Cancel", "callback_data": f"cancel:{nonce}"},
-        ]]}
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "Confirm", "callback_data": f"confirm:{nonce}"},
+                    {"text": "Cancel", "callback_data": f"cancel:{nonce}"},
+                ]
+            ]
+        }
 
     def handle_update(self, update: dict[str, Any]) -> None:
         if isinstance(update.get("callback_query"), dict):
@@ -85,9 +93,16 @@ class TelegramBot:
         sender, chat, text = message.get("from"), message.get("chat"), message.get("text")
         if not isinstance(sender, dict) or not isinstance(chat, dict) or not isinstance(text, str):
             return
-        user_id, chat_id, chat_type = int(sender.get("id", 0)), int(chat.get("id", 0)), str(chat.get("type", ""))
+        user_id, chat_id, chat_type = (
+            int(sender.get("id", 0)),
+            int(chat.get("id", 0)),
+            str(chat.get("type", "")),
+        )
         if not self.authorized(user_id, chat_id, chat_type):
-            log_event(self.paths, {"status": "unauthorized", "error_code": ErrorCode.TELEGRAM_UNAUTHORIZED.value})
+            log_event(
+                self.paths,
+                {"status": "unauthorized", "error_code": ErrorCode.TELEGRAM_UNAUTHORIZED.value},
+            )
             self.api.send_message(chat_id, "Unauthorized")
             return
         if not self._rate_allowed(user_id):
@@ -103,25 +118,31 @@ class TelegramBot:
         except Exception:
             self.api.send_message(chat_id, "INTERNAL_ERROR: Operation failed safely.")
 
-    def _command(self, command: str, argument: str, user_id: int, chat_id: int) -> tuple[str, dict[str, Any] | None]:
+    def _command(
+        self, command: str, argument: str, user_id: int, chat_id: int
+    ) -> tuple[str, dict[str, Any] | None]:
         self.config = load_config(self.paths, create=True)
         self.telegram = self.config["telegram"]
         state = load_state(self.paths)
         if command in {"/start", "/help"}:
             return HELP, None
         if command == "/status":
-            return _pretty({
-                "enabled": self.config["enabled"],
-                "background_enabled": self.config["background_enabled"],
-                "schedule": f"{self.config['schedule_time']} {self.config['timezone']}",
-                "next": next_run(self.config).isoformat(),
-                "pending_automatic": state.get("pending_automatic"),
-                "last_run": state.get("last_run"),
-                "health": health_report(self.paths),
-                "window_note": WINDOW_UNVERIFIED,
-            }), None
+            return _pretty(
+                {
+                    "enabled": self.config["enabled"],
+                    "background_enabled": self.config["background_enabled"],
+                    "schedule": f"{self.config['schedule_time']} {self.config['timezone']}",
+                    "next": next_automatic_run(self.paths, self.config).isoformat(),
+                    "pending_automatic": state.get("pending_automatic"),
+                    "last_run": state.get("last_run"),
+                    "health": health_report(self.paths),
+                    "window_note": WINDOW_UNVERIFIED,
+                }
+            ), None
         if command == "/run":
-            return "Run a real Claude subscription request?", self._confirmation(user_id, chat_id, "run")
+            return "Run a real Claude subscription request?", self._confirmation(
+                user_id, chat_id, "run"
+            )
         if command == "/dryrun":
             _start_local_job("dry")
             return "Dry-run started; no Claude request will be sent.", None
@@ -130,8 +151,12 @@ class TelegramBot:
         if command == "/health":
             return _pretty(health_report(self.paths)), None
         if command == "/schedule":
-            return f"{self.config['schedule_time']} {self.config['timezone']}", None
+            return next_automatic_run(self.paths, self.config).isoformat(), None
         if command == "/settime":
+            if self.config.get("automation_mode") == "five_hour_window":
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, "Five-hour window mode has no fixed clock time"
+                )
             _validate_time(argument)
             self.config["schedule_time"] = argument
             save_config(self.paths, self.config)
@@ -157,7 +182,11 @@ class TelegramBot:
                 raise AppError(ErrorCode.CONFIG_INVALID, "Use /background on or /background off")
             self.config["background_enabled"] = argument == "on"
             save_config(self.paths, self.config)
-            return f"Background mode {'enabled' if self.config['background_enabled'] else 'disabled'}.", None
+            background_status = "enabled" if self.config["background_enabled"] else "disabled"
+            return (
+                f"Background mode {background_status}.",
+                None,
+            )
         if command == "/next":
             return next_run(self.config).isoformat(), None
         if command == "/last":
@@ -168,7 +197,9 @@ class TelegramBot:
             return str(self.config["model"]), None
         if command == "/setmodel":
             if argument not in {"auto", "haiku", "sonnet", "opus"}:
-                raise AppError(ErrorCode.CONFIG_INVALID, "Model must be auto, haiku, sonnet, or opus")
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID, "Model must be auto, haiku, sonnet, or opus"
+                )
             self.config["model"] = argument
             save_config(self.paths, self.config)
             return f"Model set to {argument}.", None
@@ -177,10 +208,16 @@ class TelegramBot:
         if command == "/setprompt":
             if not argument or len(argument) > int(self.telegram["max_prompt_length"]):
                 raise AppError(ErrorCode.CONFIG_INVALID, "Prompt is empty or too long")
-            return "Replace the configured prompt?", self._confirmation(user_id, chat_id, "setprompt", argument)
+            return "Replace the configured prompt?", self._confirmation(
+                user_id, chat_id, "setprompt", argument
+            )
         if command in {"/timer", "/restarttimer"}:
             result = _service_action("background", "status" if command == "/timer" else "restart")
-            return (json.dumps(result, ensure_ascii=False) if command == "/timer" else "Background service restarted."), None
+            return (
+                json.dumps(result, ensure_ascii=False)
+                if command == "/timer"
+                else "Background service restarted."
+            ), None
         if command == "/version":
             from . import __version__
 
@@ -190,12 +227,20 @@ class TelegramBot:
     def _handle_callback(self, callback: dict[str, Any]) -> None:
         sender, message, data = callback.get("from"), callback.get("message"), callback.get("data")
         callback_id = str(callback.get("id", ""))
-        if not isinstance(sender, dict) or not isinstance(message, dict) or not isinstance(data, str):
+        if (
+            not isinstance(sender, dict)
+            or not isinstance(message, dict)
+            or not isinstance(data, str)
+        ):
             return
         chat = message.get("chat")
         if not isinstance(chat, dict):
             return
-        user_id, chat_id, chat_type = int(sender.get("id", 0)), int(chat.get("id", 0)), str(chat.get("type", ""))
+        user_id, chat_id, chat_type = (
+            int(sender.get("id", 0)),
+            int(chat.get("id", 0)),
+            str(chat.get("type", "")),
+        )
         if not self.authorized(user_id, chat_id, chat_type):
             self.api.answer_callback(callback_id, "Unauthorized")
             return
@@ -205,8 +250,17 @@ class TelegramBot:
         if not isinstance(confirmation, dict):
             self.api.answer_callback(callback_id, "Expired")
             return
-        valid = confirmation.get("user_id") == user_id and confirmation.get("chat_id") == chat_id and float(confirmation.get("expires", 0)) >= time.time()
-        update_state(self.paths, lambda current: current.setdefault("telegram_confirmations", {}).pop(nonce, None))
+        expires = confirmation.get("expires")
+        expires_at = float(expires) if isinstance(expires, int | float) else 0.0
+        valid = (
+            confirmation.get("user_id") == user_id
+            and confirmation.get("chat_id") == chat_id
+            and expires_at >= time.time()
+        )
+        update_state(
+            self.paths,
+            lambda current: current.setdefault("telegram_confirmations", {}).pop(nonce, None),
+        )
         if not valid or decision not in {"confirm", "cancel"}:
             self.api.answer_callback(callback_id, "Expired")
             return
@@ -234,23 +288,55 @@ class TelegramBot:
                     for update in self.api.get_updates(offset):
                         update_id = int(update.get("update_id", offset))
                         self.handle_update(update)
-                        update_state(self.paths, lambda state, value=update_id + 1: state.__setitem__("telegram_offset", value))
+
+                        def save_offset(state: dict[str, Any], value: int = update_id + 1) -> None:
+                            state["telegram_offset"] = value
+
+                        update_state(self.paths, save_offset)
                 except AppError as exc:
-                    log_event(self.paths, {"status": "telegram_error", "error_code": exc.code.value, "sanitized_error": exc.message})
+                    log_event(
+                        self.paths,
+                        {
+                            "status": "telegram_error",
+                            "error_code": exc.code.value,
+                            "sanitized_error": exc.message,
+                        },
+                    )
+                    time.sleep(5)
+                except Exception as exc:
+                    log_event(
+                        self.paths,
+                        {
+                            "status": "telegram_unexpected_error",
+                            "sanitized_error": str(exc)[:200],
+                        },
+                    )
                     time.sleep(5)
 
     def _drain_notifications(self) -> None:
+        target = self.telegram.get("notification_channel_id") or self.telegram.get(
+            "notification_chat_id"
+        )
+        if type(target) is not int:
+            return
         state = load_state(self.paths)
         queue = state.get("notification_queue", [])
         if not isinstance(queue, list) or not queue:
             return
-        target = self.telegram.get("notification_channel_id") or self.telegram.get("notification_chat_id")
-        if type(target) is not int:
-            return
-        for item in queue[:10]:
+        batch = queue[:10]
+        batch_size = len(batch)
+        for item in batch:
             if isinstance(item, str):
                 self.api.send_message(target, item)
-        update_state(self.paths, lambda current: current.__setitem__("notification_queue", queue[10:]))
+        # Advance the queue by batch_size inside update_state so that items appended
+        # by notify() between our read above and this write are never overwritten.
+        update_state(
+            self.paths,
+            lambda current: current.__setitem__(
+                "notification_queue",
+                (current.get("notification_queue") or [])[batch_size:],
+            ),
+        )
 
 
 def _pretty(value: Any) -> str:
@@ -292,7 +378,14 @@ def _service_action(target: str, action: str) -> dict[str, Any]:
         argv = ["/bin/launchctl", "kill", "SIGTERM", f"{domain}/{label}"]
     else:
         argv = ["/bin/launchctl", "kickstart", "-k", f"{domain}/{label}"]
-    process = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10, check=False, shell=False)
+    process = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        shell=False,
+    )
     if process.returncode != 0:
         raise AppError(ErrorCode.LAUNCHD_FAILED, f"Unable to {action} {target} service")
     return {"label": label, "action": action, "output": process.stdout.strip()}

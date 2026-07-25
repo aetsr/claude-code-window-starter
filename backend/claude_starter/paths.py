@@ -12,7 +12,11 @@ class AppPaths:
     @classmethod
     def discover(cls, override: str | None = None) -> AppPaths:
         value = override or os.environ.get("CLAUDE_STARTER_HOME")
-        base = Path(value).expanduser() if value else Path.home() / "Library/Application Support/ClaudeWindowStarter"
+        base = (
+            Path(value).expanduser()
+            if value
+            else Path.home() / "Library/Application Support/ClaudeWindowStarter"
+        )
         return cls(base.resolve())
 
     @property
@@ -54,6 +58,10 @@ class AppPaths:
     @property
     def bot_lock(self) -> Path:
         return self.runtime_dir / "telegram.lock"
+
+    @property
+    def usage_status_file(self) -> Path:
+        return self.runtime_dir / "usage-status.json"
 
     @property
     def releases(self) -> Path:

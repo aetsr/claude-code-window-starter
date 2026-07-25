@@ -10,11 +10,12 @@ from .errors import AppError, ErrorCode
 from .io_utils import atomic_write_json, read_json
 from .paths import AppPaths
 
-
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 2,
     "enabled": False,
     "background_enabled": False,
+    "automation_mode": "five_hour_window",
+    "reset_grace_seconds": 60,
     "schedule_time": "08:00",
     "timezone": "Europe/Istanbul",
     "model": "auto",
@@ -66,16 +67,23 @@ def _reject_unknown(supplied: dict[str, Any], expected: dict[str, Any], prefix: 
 
 def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
     """Convert the shipped v1 config without copying removed fields."""
-    version = supplied.get("schema_version", 1)
+    raw_version = supplied.get("schema_version", 1)
+    if isinstance(raw_version, int | str) and str(raw_version).isdigit():
+        version: Any = int(raw_version)
+    else:
+        version = raw_version
     if version == 2:
-        return supplied
+        normalized = copy.deepcopy(supplied)
+        normalized["schema_version"] = 2
+        return normalized
     if version != 1:
         raise AppError(ErrorCode.CONFIG_INVALID, "Unsupported config schema_version")
 
     migrated: dict[str, Any] = {
         key: copy.deepcopy(value)
         for key, value in supplied.items()
-        if key in {
+        if key
+        in {
             "schema_version",
             "enabled",
             "schedule_time",
@@ -123,7 +131,9 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     if telegram.get("enabled") and (
         not telegram.get("allowed_user_ids") or not telegram.get("allowed_chat_ids")
     ):
-        raise AppError(ErrorCode.CONFIG_INVALID, "Telegram requires user and private-chat allowlists")
+        raise AppError(
+            ErrorCode.CONFIG_INVALID, "Telegram requires user and private-chat allowlists"
+        )
     for field in ("notification_chat_id", "notification_channel_id"):
         value = telegram.get(field)
         if value is not None and type(value) is not int:
@@ -136,6 +146,8 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     ):
         if type(config.get(field)) is not bool:
             raise AppError(ErrorCode.CONFIG_INVALID, f"{field} must be boolean")
+    if config.get("automation_mode") not in {"five_hour_window", "daily"}:
+        raise AppError(ErrorCode.CONFIG_INVALID, "automation_mode is invalid")
     for field in (
         "enabled",
         "commands_in_private_chat_only",
@@ -147,6 +159,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     for name, low, high in (
         ("timeout_seconds", 10, 1800),
         ("log_retention_days", 1, 3650),
+        ("reset_grace_seconds", 0, 900),
     ):
         value = config.get(name)
         if type(value) is not int or not low <= value <= high:

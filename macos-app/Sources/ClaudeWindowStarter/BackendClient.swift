@@ -26,6 +26,16 @@ struct BackendClient {
         return try await command(arguments: ["telegram-test", "--token-stdin"], stdin: Data(token.utf8))
     }
 
+    func telegramPair(code: String) async throws -> CommandEnvelope {
+        guard let token = KeychainStore.load(account: "telegram_token") else {
+            throw ProcessRunnerError.launch("Telegram token is not configured in Keychain.")
+        }
+        return try await command(
+            arguments: ["telegram-pair", "--code", code, "--token-stdin"],
+            stdin: Data(token.utf8)
+        )
+    }
+
     private func local(arguments: [String], stdin: Data?) async throws -> ProcessResult {
         let home = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "ClaudeWindowStarter")

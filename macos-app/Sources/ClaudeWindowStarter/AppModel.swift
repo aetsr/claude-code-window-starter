@@ -11,6 +11,10 @@ final class AppModel: ObservableObject {
     @Published var networkOnline = false
     @Published var powerAssertion = false
     @Published var pendingAutomatic = false
+    @Published var automationBlocked = false
+    @Published var nextRunText = "İlk kontrol bekleniyor"
+    @Published var usageWindowText = "Henüz doğrulanmadı"
+    @Published var telegramPairCode = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
 
     private let backend = BackendClient()
 
@@ -31,8 +35,15 @@ final class AppModel: ObservableObject {
             defer { busy = false }
             do {
                 let result = try await backend.command(arguments: arguments)
-                statusText = result.data?.description ?? result.status
-                if arguments.first == "status" { parseStatus(result.data) }
+                statusText = renderResult(arguments: arguments, result: result)
+                if arguments.first == "status" {
+                    parseStatus(result.data)
+                } else if arguments.first == "run" {
+                    parseRunResult(result.data)
+                    if let status = try? await backend.command(arguments: ["status"]) {
+                        parseStatus(status.data)
+                    }
+                }
             } catch {
                 lastError = error.localizedDescription
                 statusText = error.localizedDescription
@@ -41,15 +52,28 @@ final class AppModel: ObservableObject {
     }
 
     func saveConfiguration() {
+        let trimmedUserID = settings.telegramUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedChatID = settings.telegramChatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNotificationID = settings.notificationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userID = Int64(trimmedUserID)
+        let chatID = Int64(trimmedChatID)
+        let notificationID = Int64(trimmedNotificationID)
+        if settings.telegramEnabled && (userID == nil || chatID == nil) {
+            lastError = "Telegram etkinse izinli kullanıcı ve özel sohbet ID alanları sayısal olmalıdır."
+            return
+        }
+        if !trimmedNotificationID.isEmpty && notificationID == nil {
+            lastError = "Bildirim sohbet/kanal ID alanı sayısal olmalıdır."
+            return
+        }
         busy = true
         lastError = nil
-        let userID = Int64(settings.telegramUserID)
-        let chatID = Int64(settings.telegramChatID)
-        let notificationID = Int64(settings.notificationID)
         let document: [String: Any] = [
             "schema_version": 2,
             "enabled": settings.enabled,
             "background_enabled": settings.backgroundEnabled,
+            "automation_mode": "five_hour_window",
+            "reset_grace_seconds": 60,
             "schedule_time": settings.scheduleTime,
             "timezone": settings.timezone,
             "model": settings.model,
@@ -74,14 +98,18 @@ final class AppModel: ObservableObject {
         ]
         do {
             let data = try JSONSerialization.data(withJSONObject: document)
-            try SettingsStore.save(settings)
             Task {
                 defer { busy = false }
                 do {
                     let result = try await backend.applyConfig(data: data)
-                    statusText = result.data?.description ?? "Ayarlar kaydedildi"
+                    try SettingsStore.save(settings)
+                    statusText = renderResult(arguments: ["config", "patch-stdin"], result: result)
+                    if let status = try? await backend.command(arguments: ["status"]) {
+                        parseStatus(status.data)
+                    }
                 } catch {
                     lastError = error.localizedDescription
+                    statusText = error.localizedDescription
                 }
             }
         } catch {
@@ -115,15 +143,69 @@ final class AppModel: ObservableObject {
             defer { busy = false }
             do {
                 let result = try await backend.telegramTest()
-                statusText = result.data?.description ?? "Telegram bağlantısı başarılı"
+                if case .object(let object)? = result.data,
+                   case .bool(let messageSent)? = object["message_sent"] {
+                    statusText = messageSent
+                        ? "Telegram bağlantısı ve test mesajı başarılı."
+                        : "Telegram Bot API bağlantısı başarılı. Mesaj testi için önce özel sohbeti eşleştirin."
+                } else {
+                    statusText = "Telegram Bot API bağlantısı başarılı."
+                }
             } catch {
                 lastError = error.localizedDescription
             }
         }
     }
 
+    func renewTelegramPairCode() {
+        telegramPairCode = String(
+            UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        ).uppercased()
+    }
+
+    func pairTelegram() {
+        busy = true
+        lastError = nil
+        Task {
+            defer { busy = false }
+            do {
+                let result = try await backend.telegramPair(code: telegramPairCode)
+                guard case .object(let object)? = result.data,
+                      case .number(let userID)? = object["user_id"],
+                      case .number(let chatID)? = object["chat_id"] else {
+                    throw ProcessRunnerError.invalidOutput
+                }
+                settings.telegramUserID = String(Int64(userID))
+                settings.telegramChatID = String(Int64(chatID))
+                settings.notificationID = String(Int64(chatID))
+                settings.telegramEnabled = true
+                var parts = ["Telegram özel sohbeti eşleştirildi ve bot etkinleştirildi."]
+                if case .bool(let restarted)? = object["service_restarted"], !restarted {
+                    parts.append("Servis yeniden başlatılamadı; Bakım sekmesinden telegram servisini yeniden başlatın.")
+                }
+                statusText = parts.joined(separator: " ")
+                try SettingsStore.save(settings)
+                if let status = try? await backend.command(arguments: ["status"]) {
+                    parseStatus(status.data)
+                }
+                renewTelegramPairCode()
+            } catch {
+                lastError = error.localizedDescription
+                statusText = error.localizedDescription
+            }
+        }
+    }
+
     func parseStatus(_ value: JSONValue?) {
         guard case .object(let object) = value else { return }
+        if case .string(let value)? = object["next_run"] { nextRunText = value }
+        if case .object(let usage)? = object["usage_window"] {
+            if case .bool(let verified)? = usage["verified"] {
+                usageWindowText = verified ? "Resmî reset zamanı doğrulandı" : "5 saatlik tahmin kullanılıyor"
+            }
+        } else {
+            usageWindowText = "İlk Claude kontrolü bekleniyor"
+        }
         if case .object(let health)? = object["health"], case .object(let checks)? = health["checks"] {
             if case .object(let background)? = checks["background"] {
                 if case .bool(let value)? = background["network_online"] { networkOnline = value }
@@ -131,5 +213,90 @@ final class AppModel: ObservableObject {
             }
         }
         if case .object? = object["pending_automatic"] { pendingAutomatic = true } else { pendingAutomatic = false }
+        if case .object? = object["automatic_blocked"] { automationBlocked = true } else { automationBlocked = false }
+    }
+
+    private func parseRunResult(_ value: JSONValue?) {
+        guard case .object(let object) = value else { return }
+        if case .object(let verification)? = object["usage_window_verification"],
+           case .bool(let verified)? = verification["verified"] {
+            usageWindowText = verified ? "Resmî reset zamanı doğrulandı" : "5 saatlik tahmin kullanılıyor"
+        }
+    }
+
+    private func renderResult(arguments: [String], result: CommandEnvelope) -> String {
+        let command = arguments.first ?? ""
+        guard let data = result.data else { return result.status }
+        if command == "logs",
+           case .object(let object) = data,
+           case .array(let lines)? = object["lines"] {
+            return lines.compactMap {
+                if case .string(let line) = $0 { return line }
+                return nil
+            }.joined(separator: "\n")
+        }
+        if command == "run", case .object(let object) = data {
+            let model = (object["selected_model"]).flatMap {
+                if case .string(let value) = $0 { return value }
+                return nil
+            } ?? "auto"
+            let note = (object["usage_window_verification"]).flatMap { value -> String? in
+                guard case .object(let details) = value else { return nil }
+                if case .string(let message)? = details["message"] { return message }
+                return nil
+            } ?? ""
+            return note.isEmpty ? "Çalıştırma başarılı. Model: \(model)." : "Çalıştırma başarılı. Model: \(model).\n\(note)"
+        }
+        if command == "status", case .object(let object) = data {
+            let enabled = boolText(object["enabled"], on: "Açık", off: "Kapalı")
+            let background = boolText(object["background_enabled"], on: "Açık", off: "Kapalı")
+            let telegram = boolText(object["telegram_enabled"], on: "Açık", off: "Kapalı")
+            let nextRun = stringValue(object["next_run"]) ?? "Bilinmiyor"
+            return "Otomasyon: \(enabled)\nArka plan: \(background)\nTelegram: \(telegram)\nSonraki çalışma: \(nextRun)"
+        }
+        if case .string(let value) = data { return value }
+        return plainText(data)
+    }
+
+    private func stringValue(_ value: JSONValue?) -> String? {
+        if case .string(let text) = value { return text }
+        return nil
+    }
+
+    private func boolText(_ value: JSONValue?, on: String, off: String) -> String {
+        if case .bool(let flag) = value {
+            return flag ? on : off
+        }
+        return off
+    }
+
+    private func plainText(_ value: JSONValue, indent: String = "") -> String {
+        switch value {
+        case .null:
+            return "\(indent)-"
+        case .bool(let flag):
+            return "\(indent)\(flag ? "true" : "false")"
+        case .number(let number):
+            return "\(indent)\(number)"
+        case .string(let text):
+            return "\(indent)\(text)"
+        case .array(let items):
+            return items.enumerated().map { _, item in
+                if case .object = item {
+                    return plainText(item, indent: "\(indent)- ")
+                }
+                return "\(indent)- \(plainText(item))"
+            }.joined(separator: "\n")
+        case .object(let object):
+            return object.keys.sorted().compactMap { key in
+                guard let child = object[key] else { return nil }
+                switch child {
+                case .object, .array:
+                    return "\(indent)\(key):\n\(plainText(child, indent: "\(indent)  "))"
+                default:
+                    return "\(indent)\(key): \(plainText(child))"
+                }
+            }.joined(separator: "\n")
+        }
     }
 }

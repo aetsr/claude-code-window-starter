@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -17,10 +19,14 @@ from .locks import FileLock
 from .logging_utils import log_event, sanitize_text
 from .paths import AppPaths
 from .state import load_state, update_state
+from .usage import captured_rate_limits, next_window_time, normalized_rate_limits
 
 WINDOW_UNVERIFIED = (
-    "Gerçek Claude isteği başarıyla gönderildi ancak 5 saatlik kullanım "
-    "penceresinin başladığı teknik olarak doğrulanamadı."
+    "Claude isteği başarılı; resmi rate_limits alanı alınamadığı için sonraki çalışma "
+    "başarı zamanından beş saat sonrası olarak tahmin edildi."
+)
+WINDOW_VERIFIED = (
+    "Beş saatlik pencerenin reset zamanı Claude Code rate_limits verisiyle doğrulandı."
 )
 
 PROHIBITED_ENV = {
@@ -158,7 +164,16 @@ def _classify_failure(stderr: str, stdout: str, returncode: int) -> AppError:
         word in text for word in ("unavailable", "not available", "invalid model")
     ):
         return AppError(ErrorCode.MODEL_UNAVAILABLE, "Requested Claude model is unavailable")
-    if any(word in text for word in ("rate limit", "usage limit", "limit reached")):
+    if any(
+        word in text
+        for word in (
+            "rate limit",
+            "usage limit",
+            "limit reached",
+            "session limit",
+            "weekly limit",
+        )
+    ):
         return AppError(ErrorCode.RATE_OR_USAGE_LIMIT)
     if any(word in text for word in ("not logged in", "authentication", "unauthorized", "oauth")):
         return AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED)
@@ -180,7 +195,18 @@ def _classify_failure(stderr: str, stdout: str, returncode: int) -> AppError:
     )
 
 
-def _build_args(capabilities: ClaudeCapabilities, model: str | None) -> list[str]:
+def _statusline_settings(paths: AppPaths) -> str:
+    python = shlex.quote(str(Path(sys.executable).resolve()))
+    home = shlex.quote(str(paths.base))
+    command = f"{python} -m claude_starter.statusline_capture --home {home}"
+    return json.dumps({"statusLine": {"type": "command", "command": command}})
+
+
+def _build_args(
+    capabilities: ClaudeCapabilities,
+    model: str | None,
+    paths: AppPaths | None = None,
+) -> list[str]:
     if capabilities.executable is None:
         raise AppError(ErrorCode.CLAUDE_NOT_FOUND)
     help_text = capabilities.help_text
@@ -201,8 +227,10 @@ def _build_args(capabilities: ClaudeCapabilities, model: str | None) -> list[str
         argv.extend(["--tools", ""])
     if "--setting-sources" in help_text:
         argv.extend(["--setting-sources", ""])
+    if paths is not None and "--settings" in help_text:
+        argv.extend(["--settings", _statusline_settings(paths)])
     if "--mcp-config" in help_text and "--strict-mcp-config" in help_text:
-        argv.extend(["--mcp-config", "{}", "--strict-mcp-config"])
+        argv.extend(["--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config"])
     return argv
 
 
@@ -212,9 +240,10 @@ def _invoke_once(
     capabilities: ClaudeCapabilities,
     model: str | None,
 ) -> dict[str, Any]:
-    argv = _build_args(capabilities, model)
+    argv = _build_args(capabilities, model, paths)
     environment = _clean_environment(paths, config)
     started = time.monotonic()
+    started_epoch = time.time()
     process = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -246,12 +275,23 @@ def _invoke_once(
     actual_model = payload.get("model")
     if not actual_model and isinstance(payload.get("modelUsage"), dict):
         actual_model = next(iter(payload["modelUsage"]), None)
+    rate_limits = normalized_rate_limits(payload.get("rate_limits"))
+    if rate_limits is None and "--settings" in capabilities.help_text:
+        # Claude can render its status line immediately after the print-mode
+        # process exits. Give that bounded helper a moment to atomically publish
+        # the structured reset timestamp.
+        deadline = time.monotonic() + 2
+        while rate_limits is None and time.monotonic() < deadline:
+            rate_limits = captured_rate_limits(paths, newer_than=started_epoch)
+            if rate_limits is None:
+                time.sleep(0.05)
     return {
         "response": sanitize_text(result.strip(), 1000),
         "selected_model": str(actual_model or model or "default"),
         "duration_seconds": duration,
         "exit_code": process.returncode,
         "usage": payload.get("usage") if isinstance(payload.get("usage"), dict) else None,
+        "rate_limits": rate_limits,
     }
 
 
@@ -268,17 +308,20 @@ def run_claude(
             "Disallowed API/provider credentials detected; real execution stopped",
             {"sources": capabilities.prohibited_credentials},
         )
+    if capabilities.auth_status == "not_authenticated":
+        raise AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED)
     now = local_now(config)
     is_automatic = trigger in {"automatic", "catch_up", "background"}
     if is_automatic and not config["enabled"]:
         raise AppError(ErrorCode.CONFIG_INVALID, "Automatic execution is disabled")
     state = load_state(paths)
-    if (
-        is_automatic
-        and config["prevent_duplicate_daily_run"]
-        and state.get("last_automatic_date") == now.date().isoformat()
-    ):
-        raise AppError(ErrorCode.ALREADY_RAN_TODAY)
+    next_window = state.get("next_window_run_at")
+    if is_automatic and isinstance(next_window, str):
+        try:
+            if datetime.now(timezone.utc) < datetime.fromisoformat(next_window):
+                raise AppError(ErrorCode.WINDOW_NOT_DUE)
+        except ValueError:
+            pass
     if dry_run:
         return {
             "dry_run": True,
@@ -288,6 +331,14 @@ def run_claude(
             "real_request_sent": False,
         }
     with FileLock(paths.run_lock, timeout=0, error_code=ErrorCode.ALREADY_RUNNING):
+        state = load_state(paths)
+        next_window = state.get("next_window_run_at")
+        if is_automatic and isinstance(next_window, str):
+            try:
+                if datetime.now(timezone.utc) < datetime.fromisoformat(next_window):
+                    raise AppError(ErrorCode.WINDOW_NOT_DUE)
+            except ValueError:
+                pass
         selected = config["model"]
         candidates: list[str | None]
         if selected == "auto":
@@ -318,7 +369,13 @@ def run_claude(
                     raise
         if result is None:
             raise last_error or AppError(ErrorCode.NONZERO_EXIT)
-        ended = datetime.now(timezone.utc).isoformat()
+        completed_at = datetime.now(timezone.utc)
+        ended = completed_at.isoformat()
+        next_at, verified_window = next_window_time(
+            result.get("rate_limits"),
+            completed_at=completed_at,
+            grace_seconds=int(config["reset_grace_seconds"]),
+        )
         record = {
             "trigger_source": trigger,
             "run_type": "automatic" if is_automatic else "manual",
@@ -329,16 +386,27 @@ def run_claude(
             "exit_code": 0,
             "response_summary": result["response"],
             "usage_window_verification": {
-                "verified": False,
-                "method": "unsupported",
-                "message": WINDOW_UNVERIFIED,
+                "verified": verified_window,
+                "method": "claude_statusline" if verified_window else "five_hour_estimate",
+                "message": WINDOW_VERIFIED if verified_window else WINDOW_UNVERIFIED,
             },
+            "rate_limits": result.get("rate_limits"),
+            "next_window_run_at": next_at.isoformat(),
         }
 
         def save_run(current: dict[str, Any]) -> None:
             current["last_run"] = record
+            current["automatic_blocked"] = None
+            current["automatic_blocked_date"] = None
             if is_automatic:
                 current["last_automatic_date"] = now.date().isoformat()
+            current["usage_window"] = {
+                "verified": verified_window,
+                "source": "claude_statusline" if verified_window else "five_hour_estimate",
+                "rate_limits": result.get("rate_limits"),
+                "captured_at": ended,
+            }
+            current["next_window_run_at"] = next_at.isoformat()
             if selected == "auto":
                 current["model_cache"] = {
                     "model": result["selected_model"]

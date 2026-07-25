@@ -41,7 +41,9 @@ class ReleaseManager:
 
     def list_releases(self) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
-        for release in sorted((p for p in self.paths.releases.iterdir() if p.is_dir()), reverse=True):
+        for release in sorted(
+            (p for p in self.paths.releases.iterdir() if p.is_dir()), reverse=True
+        ):
             try:
                 manifest = json.loads((release / "release.json").read_text(encoding="utf-8"))
                 if isinstance(manifest, dict):
@@ -54,7 +56,11 @@ class ReleaseManager:
         with FileLock(self.paths.run_lock, timeout=15, error_code=ErrorCode.ALREADY_RUNNING):
             try:
                 current = self.paths.current.resolve(strict=True)
-                target = self.paths.releases / release_name if release_name else self.paths.previous.resolve(strict=True)
+                target = (
+                    self.paths.releases / release_name
+                    if release_name
+                    else self.paths.previous.resolve(strict=True)
+                )
             except (OSError, RuntimeError) as exc:
                 raise AppError(ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE) from exc
             releases_root = self.paths.releases.resolve()
@@ -63,7 +69,9 @@ class ReleaseManager:
             except (OSError, RuntimeError) as exc:
                 raise AppError(ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE) from exc
             if target.parent != releases_root:
-                raise AppError(ErrorCode.INVALID_RELEASE, "Release must be inside the local releases directory")
+                raise AppError(
+                    ErrorCode.INVALID_RELEASE, "Release must be inside the local releases directory"
+                )
             if not target.is_dir() or not (target / "release.json").is_file():
                 raise AppError(ErrorCode.NO_HEALTHY_PREVIOUS_RELEASE)
             try:
@@ -71,14 +79,20 @@ class ReleaseManager:
             except (OSError, json.JSONDecodeError) as exc:
                 raise AppError(ErrorCode.INVALID_RELEASE) from exc
             if not isinstance(manifest, dict) or manifest.get("healthy") is not True:
-                raise AppError(ErrorCode.INVALID_RELEASE, "Only a healthy local release can be activated")
+                raise AppError(
+                    ErrorCode.INVALID_RELEASE, "Only a healthy local release can be activated"
+                )
             _atomic_symlink(current, self.paths.previous)
             _atomic_symlink(target, self.paths.current)
             update_state(
                 self.paths,
                 lambda state: state.__setitem__(
                     "last_maintenance",
-                    {"action": "rollback", "release": target.name, "time": datetime.now(timezone.utc).isoformat()},
+                    {
+                        "action": "rollback",
+                        "release": target.name,
+                        "time": datetime.now(timezone.utc).isoformat(),
+                    },
                 ),
             )
             return {"status": "success", "release": target.name, "previous": current.name}

@@ -23,13 +23,15 @@ class ErrorCode(str, Enum):
     LOCK_UNAVAILABLE = "LOCK_UNAVAILABLE"
     ALREADY_RUNNING = "ALREADY_RUNNING"
     ALREADY_RAN_TODAY = "ALREADY_RAN_TODAY"
+    WINDOW_NOT_DUE = "WINDOW_NOT_DUE"
     DISK_SPACE_LOW = "DISK_SPACE_LOW"
     STATE_WRITE_FAILED = "STATE_WRITE_FAILED"
-    TELEGRAM_TOKEN_MISSING = "TELEGRAM_TOKEN_MISSING"
+    TELEGRAM_TOKEN_MISSING = "TELEGRAM_TOKEN_MISSING"  # noqa: S105
     TELEGRAM_UNAUTHORIZED = "TELEGRAM_UNAUTHORIZED"
     TELEGRAM_RATE_LIMITED = "TELEGRAM_RATE_LIMITED"
     TELEGRAM_API_ERROR = "TELEGRAM_API_ERROR"
     TELEGRAM_SERVICE_FAILED = "TELEGRAM_SERVICE_FAILED"
+    TELEGRAM_PAIRING_FAILED = "TELEGRAM_PAIRING_FAILED"
     LAUNCHD_FAILED = "LAUNCHD_FAILED"
     RELEASE_PREPARATION_FAILED = "RELEASE_PREPARATION_FAILED"
     HEALTH_CHECK_FAILED = "HEALTH_CHECK_FAILED"
@@ -47,7 +49,10 @@ ERROR_MESSAGES.update(
         ErrorCode.API_KEY_DETECTED: "A disallowed API or provider credential was detected.",
         ErrorCode.CLAUDE_NOT_AUTHENTICATED: "Claude subscription authentication is unavailable.",
         ErrorCode.ALREADY_RAN_TODAY: "The automatic request already ran for this local date.",
-        ErrorCode.NETWORK_UNAVAILABLE: "The internet connection is unavailable; the work is pending.",
+        ErrorCode.WINDOW_NOT_DUE: "The current five-hour window has already been started.",
+        ErrorCode.NETWORK_UNAVAILABLE: (
+            "The internet connection is unavailable; the work is pending."
+        ),
     }
 )
 
