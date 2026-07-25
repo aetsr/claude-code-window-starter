@@ -11,19 +11,26 @@ from .io_utils import atomic_write_json, read_json
 from .paths import AppPaths
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 3,
     "enabled": False,
     "background_enabled": False,
-    "automation_mode": "five_hour_window",
-    "reset_grace_seconds": 60,
-    "schedule_time": "08:00",
     "timezone": "Europe/Istanbul",
     "model": "auto",
     "prompt": "Respond with OK.",
     "timeout_seconds": 120,
-    "allow_catch_up": True,
-    "prevent_duplicate_daily_run": True,
     "log_retention_days": 30,
+    "windows": {
+        "five_hour": {
+            "enabled": True,
+            "anchor_iso": None,
+            "interval_minutes": 303,  # 5 hours 3 minutes
+        },
+        "weekly": {
+            "enabled": False,
+            "anchor_iso": None,
+            "interval_minutes": 10080,  # 7 days
+        },
+    },
     "telegram": {
         "enabled": False,
         "allowed_user_ids": [],
@@ -80,16 +87,46 @@ def _strip_unknown(supplied: dict[str, Any], expected: dict[str, Any]) -> dict[s
 
 
 def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
-    """Convert the shipped v1 config without copying removed fields."""
+    """Migrate config from v1→v2→v3."""
     raw_version = supplied.get("schema_version", 1)
     if isinstance(raw_version, int | str) and str(raw_version).isdigit():
         version: Any = int(raw_version)
     else:
         version = raw_version
-    if version == 2:
+
+    # v3 is current
+    if version == 3:
         normalized = copy.deepcopy(supplied)
-        normalized["schema_version"] = 2
+        normalized["schema_version"] = 3
         return normalized
+
+    # v2→v3: Remove old automation fields, add windows section
+    if version == 2:
+        migrated = copy.deepcopy(supplied)
+        migrated["schema_version"] = 3
+        # Remove deprecated v2 fields
+        migrated.pop("schedule_time", None)
+        migrated.pop("automation_mode", None)
+        migrated.pop("reset_grace_seconds", None)
+        migrated.pop("allow_catch_up", None)
+        migrated.pop("prevent_duplicate_daily_run", None)
+        # Ensure windows section exists (use defaults)
+        if "windows" not in migrated:
+            migrated["windows"] = {
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": None,
+                    "interval_minutes": 303,
+                },
+                "weekly": {
+                    "enabled": False,
+                    "anchor_iso": None,
+                    "interval_minutes": 10080,
+                },
+            }
+        return migrated
+
+    # v1→v2→v3
     if version != 1:
         raise AppError(ErrorCode.CONFIG_INVALID, "Unsupported config schema_version")
 
@@ -100,19 +137,28 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
         in {
             "schema_version",
             "enabled",
-            "schedule_time",
             "timezone",
             "model",
             "prompt",
             "timeout_seconds",
-            "allow_catch_up",
-            "prevent_duplicate_daily_run",
             "log_retention_days",
             "telegram",
         }
     }
-    migrated["schema_version"] = 2
+    migrated["schema_version"] = 3
     migrated["background_enabled"] = False
+    migrated["windows"] = {
+        "five_hour": {
+            "enabled": True,
+            "anchor_iso": None,
+            "interval_minutes": 303,
+        },
+        "weekly": {
+            "enabled": False,
+            "anchor_iso": None,
+            "interval_minutes": 10080,
+        },
+    }
     telegram = migrated.get("telegram")
     if isinstance(telegram, dict):
         telegram.pop("notify_updates", None)
@@ -121,15 +167,16 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
 
 def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown(config, DEFAULT_CONFIG)
-    if config.get("schema_version") != 2:
+    if config.get("schema_version") != 3:
         raise AppError(ErrorCode.CONFIG_INVALID, "Unsupported config schema_version")
-    schedule = str(config.get("schedule_time", ""))
-    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", schedule):
-        raise AppError(ErrorCode.CONFIG_INVALID, "schedule_time must use HH:MM")
+
+    # Validate timezone
     try:
         ZoneInfo(str(config.get("timezone")))
     except (ZoneInfoNotFoundError, TypeError) as exc:
         raise AppError(ErrorCode.CONFIG_INVALID, "timezone must be an IANA timezone") from exc
+
+    # Validate prompt
     prompt = config.get("prompt")
     telegram = config.get("telegram")
     if not isinstance(prompt, str) or not prompt.strip():
@@ -138,6 +185,8 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise AppError(ErrorCode.CONFIG_INVALID, "telegram must be an object")
     if len(prompt) > int(telegram.get("max_prompt_length", 500)):
         raise AppError(ErrorCode.CONFIG_INVALID, "prompt exceeds max_prompt_length")
+
+    # Validate Telegram fields
     for field in ("allowed_user_ids", "allowed_chat_ids", "allowed_channel_ids"):
         values = telegram.get(field)
         if not isinstance(values, list) or any(type(item) is not int for item in values):
@@ -152,16 +201,13 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         value = telegram.get(field)
         if value is not None and type(value) is not int:
             raise AppError(ErrorCode.CONFIG_INVALID, f"{field} must be a numeric ID or null")
-    for field in (
-        "enabled",
-        "background_enabled",
-        "allow_catch_up",
-        "prevent_duplicate_daily_run",
-    ):
+
+    # Validate boolean fields
+    for field in ("enabled", "background_enabled"):
         if type(config.get(field)) is not bool:
             raise AppError(ErrorCode.CONFIG_INVALID, f"{field} must be boolean")
-    if config.get("automation_mode") not in {"five_hour_window", "daily"}:
-        raise AppError(ErrorCode.CONFIG_INVALID, "automation_mode is invalid")
+
+    # Validate Telegram boolean fields
     for field in (
         "enabled",
         "commands_in_private_chat_only",
@@ -170,14 +216,16 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     ):
         if type(telegram.get(field)) is not bool:
             raise AppError(ErrorCode.CONFIG_INVALID, f"telegram.{field} must be boolean")
+
+    # Validate numeric ranges
     for name, low, high in (
         ("timeout_seconds", 10, 1800),
         ("log_retention_days", 1, 3650),
-        ("reset_grace_seconds", 0, 900),
     ):
         value = config.get(name)
         if type(value) is not int or not low <= value <= high:
             raise AppError(ErrorCode.CONFIG_INVALID, f"{name} must be between {low} and {high}")
+
     for name, low, high in (
         ("command_cooldown_seconds", 1, 3600),
         ("confirmation_ttl_seconds", 10, 3600),
@@ -189,6 +237,48 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
                 ErrorCode.CONFIG_INVALID,
                 f"telegram.{name} must be between {low} and {high}",
             )
+
+    # Validate windows configuration
+    windows = config.get("windows")
+    if not isinstance(windows, dict):
+        raise AppError(ErrorCode.CONFIG_INVALID, "windows must be an object")
+
+    for wtype in ("five_hour", "weekly"):
+        w = windows.get(wtype)
+        if not isinstance(w, dict):
+            raise AppError(ErrorCode.CONFIG_INVALID, f"windows.{wtype} must be an object")
+
+        # enabled must be bool
+        if type(w.get("enabled")) is not bool:
+            raise AppError(ErrorCode.CONFIG_INVALID, f"windows.{wtype}.enabled must be boolean")
+
+        # If enabled, must have anchor_iso and interval_minutes configured
+        if w.get("enabled"):
+            anchor = w.get("anchor_iso")
+            interval = w.get("interval_minutes")
+
+            # anchor_iso can be None (not yet configured) or a valid ISO datetime
+            if anchor is not None:
+                if not isinstance(anchor, str):
+                    raise AppError(
+                        ErrorCode.CONFIG_INVALID,
+                        f"windows.{wtype}.anchor_iso must be an ISO datetime string or null",
+                    )
+                try:
+                    datetime.fromisoformat(anchor)
+                except ValueError:
+                    raise AppError(
+                        ErrorCode.CONFIG_INVALID,
+                        f"windows.{wtype}.anchor_iso must be a valid ISO datetime",
+                    )
+
+            # interval_minutes must be positive integer
+            if type(interval) is not int or interval <= 0:
+                raise AppError(
+                    ErrorCode.CONFIG_INVALID,
+                    f"windows.{wtype}.interval_minutes must be positive integer",
+                )
+
     return config
 
 
@@ -203,7 +293,7 @@ def load_config(paths: AppPaths, *, create: bool = False) -> dict[str, Any]:
     config = validate_config(_merge(DEFAULT_CONFIG, migrated))
     if create and not paths.config_file.exists():
         save_config(paths, config)
-    elif paths.config_file.exists() and supplied.get("schema_version") != 2:
+    elif paths.config_file.exists() and supplied.get("schema_version") != 3:
         save_config(paths, config)
     return config
 

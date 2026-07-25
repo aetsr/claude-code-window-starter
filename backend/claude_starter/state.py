@@ -10,20 +10,22 @@ from .locks import FileLock
 from .paths import AppPaths
 
 DEFAULT_STATE: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 3,
     "last_run": None,
-    "last_automatic_date": None,
-    "automatic_blocked": None,
-    "automatic_blocked_date": None,
-    "model_cache": None,
-    "pending_automatic": None,
-    "next_automatic_retry_at": None,
-    "usage_window": None,
-    "next_window_run_at": None,
     "telegram_offset": 0,
     "telegram_confirmations": {},
     "telegram_rate_limits": {},
     "notification_queue": [],
+    # Five-hour window state
+    "five_hour_next_run_at": None,
+    "five_hour_last_triggered_at": None,
+    "five_hour_last_result": None,
+    "five_hour_calibration_needed": None,
+    # Weekly window state
+    "weekly_next_run_at": None,
+    "weekly_last_triggered_at": None,
+    "weekly_last_result": None,
+    "weekly_calibration_needed": None,
 }
 
 
@@ -38,20 +40,33 @@ def load_state(paths: AppPaths) -> dict[str, Any]:
         version: Any = int(raw_version)
     else:
         version = raw_version
-    if state and version not in {1, 2}:
+    if state and version not in {1, 2, 3}:
         raise AppError(ErrorCode.STATE_WRITE_FAILED, "Unsupported or invalid state file")
+
     # Deep-copy DEFAULT_STATE so that mutable nested values (e.g. telegram_rate_limits)
     # are never shared between callers, preventing cross-call or cross-test mutation.
     result: dict[str, Any] = copy.deepcopy(DEFAULT_STATE)
     result.update(state)
-    result["schema_version"] = 2
-    if version == 1:
+    result["schema_version"] = 3
+
+    # Migrate v1→v3 or v2→v3 (remove old automation fields)
+    if version in {1, 2}:
+        # Remove deprecated fields from old schema
+        result.pop("last_automatic_date", None)
+        result.pop("automatic_blocked", None)
+        result.pop("automatic_blocked_date", None)
+        result.pop("model_cache", None)
+        result.pop("pending_automatic", None)
+        result.pop("next_automatic_retry_at", None)
+        result.pop("usage_window", None)
+        result.pop("next_window_run_at", None)
         atomic_write_json(paths.state_file, result)
+
     return result
 
 
 def save_state(paths: AppPaths, state: dict[str, Any]) -> None:
-    state = {**DEFAULT_STATE, **state, "schema_version": 2}
+    state = {**DEFAULT_STATE, **state, "schema_version": 3}
     atomic_write_json(paths.state_file, state)
 
 
