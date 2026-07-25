@@ -80,11 +80,16 @@ class TelegramAPI:
         text: str,
         *,
         reply_markup: dict[str, Any] | None = None,
-        parse_mode: str = "Markdown",
+        parse_mode: str | None = None,
     ) -> None:
+        # Auto-detect Markdown only when message contains bold markers (*text*)
+        if parse_mode is None and "*" in text:
+            parse_mode = "Markdown"
         chunks = split_message(text)
         for index, chunk in enumerate(chunks):
-            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode}
+            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
             if reply_markup is not None and index == len(chunks) - 1:
                 payload["reply_markup"] = reply_markup
             self.call("sendMessage", payload)
