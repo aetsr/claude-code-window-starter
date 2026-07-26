@@ -16,12 +16,14 @@ from .paths import AppPaths
 from .scheduler import next_runs
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
+from .usage import query_active_session_usage
 
 HELP = """🤖 Claude Window Starter
 
 📊 Durum
 /status — Sistem durumu ve pencere bilgisi
-/usage — Sonraki çalışma zamanları
+/usage — Claude kullanım bilgisini getir
+/schedule — Sonraki çalışma zamanları
 /last — Son çalışma detayı
 /health — Sağlık kontrolü
 /logs — Son kayıtlar
@@ -233,17 +235,7 @@ class TelegramBot:
             save_config(self.paths, self.config)
             return "☀️ Uyku engelleme modu kapatıldı.", None
         if command == "/usage":
-            next_window = next_runs(self.paths, self.config)
-            lines = ["📅 *Pencere Durumu*"]
-            for wtype, dt in next_window.items():
-                label = "5 saatlik" if wtype == "five_hour" else "Haftalık"
-                lines.append(f"  • {label}: {dt.strftime('%d.%m.%Y %H:%M')} UTC")
-            if not next_window:
-                lines.append("  • Pencere tanımlı değil")
-            last = state.get("last_run")
-            if isinstance(last, dict):
-                lines.append(f"\n🕐 Son çalışma: {last.get('trigger_time','?')[:16]} — {last.get('status','?')}")
-            return "\n".join(lines), None
+            return query_active_session_usage().get("formatted_text", "Claude kullanım bilgisi alınamadı."), None
         if command == "/maintenance":
             health = health_report(self.paths)
             diag = diagnose(self.paths)
@@ -520,7 +512,8 @@ class TelegramBot:
             self.api.set_my_commands([
                 {"command": "status", "description": "Sistem durumu ve pencere bilgisi"},
                 {"command": "run", "description": "Claude çalıştır (onay ister)"},
-                {"command": "usage", "description": "Sonraki çalışma zamanları"},
+                {"command": "usage", "description": "Claude kullanım bilgisini getir"},
+                {"command": "schedule", "description": "Sonraki çalışma zamanları"},
                 {"command": "last", "description": "Son çalışma detayı"},
                 {"command": "health", "description": "Sağlık kontrolü"},
                 {"command": "logs", "description": "Son kayıtlar"},

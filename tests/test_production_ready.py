@@ -516,11 +516,17 @@ class TestTelegramBotResponses(unittest.TestCase):
                 "weekly": {"enabled": False, "anchor_iso": None, "interval_minutes": 10080},
             }
             save_config(paths, cfg)
-            self._send(bot, "/usage")
+            with mock.patch(
+                "claude_starter.telegram_bot.query_active_session_usage",
+                return_value={
+                    "formatted_text": "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
+                },
+            ):
+                self._send(bot, "/usage")
             args = api.send_message.call_args[0]
             response = args[1]
             self.assertNotIn('"five_hour_window":', response)
-            self.assertIn("Pencere", response)
+            self.assertIn("Kullanım", response)
 
     def test_last_no_run_human_readable(self):
         with tempfile.TemporaryDirectory() as tmp:

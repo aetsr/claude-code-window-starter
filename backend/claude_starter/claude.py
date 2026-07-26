@@ -122,12 +122,13 @@ def discover_claude() -> ClaudeCapabilities:
         result = _run_small([executable, "--help"])
         help_text = result.stdout if result.returncode == 0 else ""
 
-        result = _run_small([executable, "auth", "get-status"], timeout=5)
+        result = _run_small([executable, "auth", "status", "--json"], timeout=5)
         if result.returncode == 0:
             try:
                 auth_data = json.loads(result.stdout)
-                auth_status = str(auth_data.get("authenticated", False)).lower().replace("true", "authenticated").replace("false", "not_authenticated")
-                auth_method = auth_data.get("method")
+                authenticated = auth_data.get("loggedIn", auth_data.get("authenticated", False))
+                auth_status = "authenticated" if authenticated is True else "not_authenticated"
+                auth_method = auth_data.get("authMethod", auth_data.get("method"))
             except (json.JSONDecodeError, ValueError):
                 pass
 

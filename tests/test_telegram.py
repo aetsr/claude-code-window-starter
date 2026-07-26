@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from claude_starter.config import DEFAULT_CONFIG, save_config
 from claude_starter.paths import AppPaths
@@ -93,6 +94,24 @@ class TelegramTests(unittest.TestCase):
         chunks = split_message("x" * 8001)
         self.assertEqual("".join(chunks), "x" * 8001)
         self.assertTrue(all(len(chunk) <= 3900 for chunk in chunks))
+
+    def test_usage_returns_formatted_usage_message(self) -> None:
+        with mock.patch(
+            "claude_starter.telegram_bot.query_active_session_usage",
+            return_value={
+                "formatted_text": "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
+            },
+        ):
+            self.bot.handle_update(
+                {
+                    "message": {
+                        "from": {"id": 100},
+                        "chat": {"id": 100, "type": "private"},
+                        "text": "/usage",
+                    }
+                }
+            )
+        self.assertIn("Claude Kullanım Bilgisi", self.api.messages[-1][1])
 
     def test_confirm_callback_executes_for_owner(self) -> None:
         """The confirmation owner should be able to confirm and get an action response."""

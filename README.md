@@ -69,12 +69,14 @@ scripts/uninstall-macos.sh --purge  # removes everything
 
 | Category | Commands |
 |----------|----------|
-| **Status** | `/status` `/health` `/diagnose` `/logs` |
+| **Status** | `/status` `/usage` `/schedule` `/health` `/diagnose` `/logs` |
 | **Automation** | `/run` `/dryrun` `/automation_on` `/automation_off` |
 | **Sleep** | `/sleep_on` `/sleep_off` |
 | **Calibration** | `/calibrate_5h HH:MM` `/calibrate_weekly YYYY-MM-DD HH:MM` |
 | **Settings** | `/setmodel` `/setprompt` `/settimezone` |
 | **Users** | `/users` `/adduser <id>` `/removeuser <id>` |
+
+`/usage` reads Claude Code usage info from the active Claude session in the frontmost Terminal or iTerm2 tab. If no active Claude tab is available, the bot returns a readable error instead of raw terminal output.
 
 All destructive actions (`/run`, `/setprompt`) require an inline confirmation tied to the originating user and chat. Polling offset is written atomically; a file lock prevents duplicate bot instances.
 
@@ -89,6 +91,7 @@ python3 -m claude_starter --home <dir> --json <command> [args]
 | Command | Description |
 |---------|-------------|
 | `status` | System status and window info |
+| `usage` | Read `/usage` output from the active Claude terminal session |
 | `run` | Execute Claude with the configured prompt |
 | `calibrate` | Set window anchor (`--window-type five_hour\|weekly --anchor ISO`) |
 | `config` | Read / patch config (`get`, `set`, `patch-stdin`) |
