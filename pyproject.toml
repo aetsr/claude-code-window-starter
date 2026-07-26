@@ -9,7 +9,7 @@ description = "Secure scheduled Claude Code subscription request runner"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
-license = { text = "Proprietary" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Claude Window Starter maintainers" }]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
