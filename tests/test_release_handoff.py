@@ -18,12 +18,18 @@ class ReleaseWorkerHandoffTests(unittest.TestCase):
         self.assertIn('" --home $BASE "', install)
         self.assertIn('" telegram-bot "', install)
         self.assertIn('kill -TERM "$worker_pid"', install)
+        self.assertIn('" --supervisor-pid "', install)
 
     def test_install_stops_old_supervisor_before_worker_handoff(self) -> None:
         install = (self.root / "scripts/install-macos.sh").read_text(encoding="utf-8")
         bootout = 'launchctl bootout "$DOMAIN/$telegram_label"'
-        handoff = "terminate_stale_telegram_worker"
-        self.assertLess(install.index(bootout), install.rindex(handoff))
+        initial_handoff = "terminate_stale_telegram_worker\nfor plist"
+        post_bootstrap_handoff = "terminate_stale_telegram_worker legacy"
+        self.assertLess(install.index(bootout), install.index(initial_handoff))
+        self.assertGreater(
+            install.index(post_bootstrap_handoff),
+            install.index('launchctl bootstrap "$DOMAIN" "$AGENT_DIR/$label.plist"'),
+        )
 
 
 if __name__ == "__main__":

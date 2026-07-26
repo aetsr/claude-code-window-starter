@@ -66,6 +66,7 @@ PY
 }
 
 terminate_stale_telegram_worker() {
+  local mode="${1:-all}"
   local lock_file="$BASE/shared/runtime/telegram.lock"
   local worker_pid=""
   local worker_command=""
@@ -81,6 +82,9 @@ terminate_stale_telegram_worker() {
         "$worker_command" != *" --home $BASE "* ||
         "$worker_command" != *" telegram-bot "* ]]; then
     echo "Ignoring stale Telegram lock PID $worker_pid: process identity did not match." >&2
+    return
+  fi
+  if [[ "$mode" == "legacy" && "$worker_command" == *" --supervisor-pid "* ]]; then
     return
   fi
   kill -TERM "$worker_pid"
@@ -108,6 +112,11 @@ for plist in "$SOURCE_ROOT"/launchd/*.plist; do
   launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "$DOMAIN" "$AGENT_DIR/$label.plist"
 done
+# A KeepAlive restart can briefly race with the first bootstrap and start one
+# pre-upgrade worker. Remove only that verified legacy argv; a current worker
+# carrying --supervisor-pid is never touched.
+sleep 2
+terminate_stale_telegram_worker legacy
 
 python3 -c 'import pathlib,shutil,sys; base=pathlib.Path(sys.argv[1]); releases=sorted((p for p in (base/"releases").iterdir() if p.is_dir()),reverse=True); protected={p.resolve() for p in (base/"current",base/"previous") if p.exists()}; [shutil.rmtree(p) for index,p in enumerate(releases) if index>=5 and p.resolve() not in protected]' "$BASE"
 echo "Installed: $APP_DESTINATION"
