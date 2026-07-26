@@ -11,4 +11,4 @@ The bot uses long polling and does not open any inbound port. The channel is a n
 
 Execution and prompt changes require a confirmation nonce. The token is never shown again or logged.
 
-`/usage` requires an active Claude Code session in the frontmost Terminal or iTerm2 tab on the Mac. The bot sends `/usage` to that tab, reads the resulting usage block, and reformats it for Telegram. If the active tab is not a Claude session, or macOS automation access is denied, the bot returns a readable error message.
+`/usage` starts a short-lived, app-managed macOS Terminal window, sends `/usage`, reads the returned usage block, reformats it for Telegram, and closes only that window. It does not require an open Claude terminal tab, but macOS Automation permission for Terminal is required. If the Claude session cannot start, times out, or cannot provide usage data, the bot returns a readable error message.

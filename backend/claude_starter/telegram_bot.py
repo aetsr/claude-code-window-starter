@@ -16,13 +16,13 @@ from .paths import AppPaths
 from .scheduler import next_runs
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
-from .usage import query_active_session_usage
+from .usage import query_usage
 
 HELP = """🤖 Claude Window Starter
 
 📊 Durum
 /status — Sistem durumu ve pencere bilgisi
-/usage — Claude kullanım bilgisini getir
+/usage — Geçici uygulama Terminal penceresinden kullanım bilgisini getir
 /schedule — Sonraki çalışma zamanları
 /last — Son çalışma detayı
 /health — Sağlık kontrolü
@@ -235,7 +235,7 @@ class TelegramBot:
             save_config(self.paths, self.config)
             return "☀️ Uyku engelleme modu kapatıldı.", None
         if command == "/usage":
-            return query_active_session_usage().get("formatted_text", "Claude kullanım bilgisi alınamadı."), None
+            return query_usage(self.paths, self.config).get("formatted_text", "Claude kullanım bilgisi alınamadı."), None
         if command == "/maintenance":
             health = health_report(self.paths)
             diag = diagnose(self.paths)

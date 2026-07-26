@@ -76,7 +76,7 @@ scripts/uninstall-macos.sh --purge  # removes everything
 | **Settings** | `/setmodel` `/setprompt` `/settimezone` |
 | **Users** | `/users` `/adduser <id>` `/removeuser <id>` |
 
-`/usage` reads Claude Code usage info from the active Claude session in the frontmost Terminal or iTerm2 tab. If no active Claude tab is available, the bot returns a readable error instead of raw terminal output.
+`/usage` opens a short-lived, app-managed macOS Terminal window, starts Claude Code with the discovered absolute CLI path, runs `/usage`, then closes only that window. It does not need an open Claude terminal tab, but the service account needs macOS Automation permission to control Terminal.
 
 All destructive actions (`/run`, `/setprompt`) require an inline confirmation tied to the originating user and chat. Polling offset is written atomically; a file lock prevents duplicate bot instances.
 
@@ -91,7 +91,7 @@ python3 -m claude_starter --home <dir> --json <command> [args]
 | Command | Description |
 |---------|-------------|
 | `status` | System status and window info |
-| `usage` | Read `/usage` output from the active Claude terminal session |
+| `usage` | Read `/usage` in a temporary, app-managed Terminal window |
 | `run` | Execute Claude with the configured prompt |
 | `calibrate` | Set window anchor (`--window-type five_hour\|weekly --anchor ISO`) |
 | `config` | Read / patch config (`get`, `set`, `patch-stdin`) |

@@ -23,7 +23,7 @@ from .scheduler import next_runs, windows_due
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 from .telegram_bot import TelegramBot, notify
-from .usage import query_active_session_usage
+from .usage import query_usage
 from .windows import _parse_iso, advance_window, format_countdown
 
 
@@ -60,7 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--window-type", choices=["five_hour", "weekly"], help="Window being triggered"
     )
-    sub.add_parser("usage")
+    sub.add_parser(
+        "usage",
+        help="Read /usage through a temporary app-managed macOS Terminal window",
+    )
 
     config_parser = sub.add_parser("config")
     config_sub = config_parser.add_subparsers(dest="config_action", required=True)
@@ -225,7 +228,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                     pass
             raise
     if command == "usage":
-        return "success", query_active_session_usage()
+        return "success", query_usage(paths, load_config(paths, create=True))
     if command == "calibrate":
         config = load_config(paths, create=True)
         window_type = args.window_type

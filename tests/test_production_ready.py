@@ -517,7 +517,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             }
             save_config(paths, cfg)
             with mock.patch(
-                "claude_starter.telegram_bot.query_active_session_usage",
+                "claude_starter.telegram_bot.query_usage",
                 return_value={
                     "formatted_text": "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
                 },
