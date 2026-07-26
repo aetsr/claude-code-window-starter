@@ -1,10 +1,10 @@
-# Yerel release ve rollback
+# Local releases and rollback
 
-Kurulum her backend kopyasını ~/Library/Application Support/ClaudeWindowStarter/releases altında immutable release olarak saklar. current çalışan, previous son fallback symlink’idir.
+The installer stores every backend copy as an immutable release under `~/Library/Application Support/ClaudeWindowStarter/releases`. `current` is the running symlink; `previous` is the last fallback symlink.
 
-Yeni release için kaynak temiz olmalı, Python syntax/import/test kontrolleri ve uygulama build’i geçmelidir. Symlink geçişi atomiktir. Sağlık kontrolü başarısızsa eski release geri alınır.
+For a new release, the source must be clean and Python syntax/import/test checks along with the application build must pass. The symlink transition is atomic. If the health check fails, the previous release is restored.
 
     claude-window-starter --json releases
     claude-window-starter --json rollback --yes
 
-Retention beş release’tir; current ve previous release silinmez. Config, state, log ve Keychain release değişimlerinde korunur.
+Retention is five releases; the `current` and `previous` releases are never deleted. Config, state, logs, and Keychain entries are preserved across release changes.

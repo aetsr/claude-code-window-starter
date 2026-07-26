@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 final class AppModel: ObservableObject {
     @Published var settings: ClientSettings
-    @Published var statusText = "Henüz kontrol edilmedi"
+    @Published var statusText = "Not checked yet"
     @Published var busy = false
     @Published var lastError: String?
     @Published var telegramToken = ""
@@ -13,8 +13,8 @@ final class AppModel: ObservableObject {
     @Published var powerAssertion = false
     @Published var pendingAutomatic = false
     @Published var automationBlocked = false
-    @Published var nextRunText = "İlk kontrol bekleniyor"
-    @Published var usageWindowText = "Henüz doğrulanmadı"
+    @Published var nextRunText = "Waiting for first check"
+    @Published var usageWindowText = "Not verified yet"
     @Published var claudeAuthStatus = "unknown"
     @Published var claudeLoginCommand = "claude auth login"
     @Published var claudeAuthHint = ""
@@ -28,12 +28,12 @@ final class AppModel: ObservableObject {
 
     // Window countdown and calibration
     @Published var fiveHourCountdown = "—"
-    @Published var fiveHourNextRunText = "Henüz kurulmadı"
+    @Published var fiveHourNextRunText = "Not set up yet"
     @Published var fiveHourLastResultText: String? = nil
     @Published var fiveHourCalibrationNeeded = false
     @Published var fiveHourCalibrationError = ""
     @Published var weeklyCountdown = "—"
-    @Published var weeklyNextRunText = "Henüz kurulmadı"
+    @Published var weeklyNextRunText = "Not set up yet"
     @Published var weeklyLastResultText: String? = nil
     @Published var weeklyCalibrationNeeded = false
     @Published var weeklyCalibrationError = ""
@@ -94,7 +94,7 @@ final class AppModel: ObservableObject {
                 let config = try await backend.command(arguments: ["config", "get"])
                 parseConfig(config.data)
                 await refreshStatus(silent: true)
-                statusText = "Ayarlar backend’den yüklendi."
+                statusText = "Settings loaded from backend."
             } catch {
                 lastError = error.localizedDescription
                 statusText = error.localizedDescription
@@ -121,7 +121,7 @@ final class AppModel: ObservableObject {
         let trimmedNotificationID = settings.notificationID.trimmingCharacters(in: .whitespacesAndNewlines)
         let notificationID = Int64(trimmedNotificationID)
         if !trimmedNotificationID.isEmpty && notificationID == nil {
-            lastError = "Bildirim sohbet/kanal ID alanı sayısal olmalıdır."
+            lastError = "The notification chat/channel ID must be numeric."
             return
         }
         busy = true
@@ -166,7 +166,7 @@ final class AppModel: ObservableObject {
             }
         } catch {
             busy = false
-            lastError = "Ayarlar kaydedilemedi."
+            lastError = "Settings could not be saved."
         }
     }
 
@@ -178,14 +178,14 @@ final class AppModel: ObservableObject {
 
     func transferTelegramCredential() {
         guard !telegramToken.isEmpty else {
-            lastError = "Telegram tokenını girin."
+            lastError = "Enter your Telegram token."
             return
         }
         do {
             try KeychainStore.save(telegramToken, account: "telegram_token")
             telegramToken = ""
             telegramTokenConfigured = true
-            statusText = "Telegram tokenı Keychain’e kaydedildi; değeri tekrar gösterilmeyecek."
+            statusText = "Telegram token saved to Keychain; the value will not be shown again."
         } catch {
             lastError = error.localizedDescription
         }
@@ -205,10 +205,10 @@ final class AppModel: ObservableObject {
                 if case .object(let object)? = result.data,
                    case .bool(let messageSent)? = object["message_sent"] {
                     statusText = messageSent
-                        ? "Telegram bağlantısı ve test mesajı başarılı."
-                        : "Telegram Bot API bağlantısı başarılı. Mesaj testi için önce özel sohbeti eşleştirin."
+                        ? "Telegram connection and test message successful."
+                        : "Telegram Bot API connection successful. To test messaging, pair the private chat first."
                 } else {
-                    statusText = "Telegram Bot API bağlantısı başarılı."
+                    statusText = "Telegram Bot API connection successful."
                 }
             } catch {
                 lastError = error.localizedDescription
@@ -259,9 +259,9 @@ final class AppModel: ObservableObject {
                 settings.telegramChatID = appendIDIfAbsent(newChatID, to: settings.telegramChatID)
                 if settings.notificationID.isEmpty { settings.notificationID = newChatID }
                 settings.telegramEnabled = true
-                var parts = ["Telegram özel sohbeti eşleştirildi ve bot etkinleştirildi."]
+                var parts = ["Telegram private chat paired and bot activated."]
                 if case .bool(let restarted)? = object["service_restarted"], !restarted {
-                    parts.append("Servis yeniden başlatılamadı; Bakım sekmesinden telegram servisini yeniden başlatın.")
+                    parts.append("Service could not be restarted; restart the Telegram service from the maintenance tab.")
                 }
                 statusText = parts.joined(separator: " ")
                 try SettingsStore.save(settings)
@@ -301,7 +301,7 @@ final class AppModel: ObservableObject {
 
     func addTelegramUser() {
         guard let uid = Int64(newTelegramUserID.trimmingCharacters(in: .whitespaces)) else {
-            lastError = "Geçerli bir sayısal kullanıcı ID girin."
+            lastError = "Enter a valid numeric user ID."
             return
         }
         newTelegramUserID = ""
@@ -334,7 +334,7 @@ final class AppModel: ObservableObject {
 
     func addTelegramChat() {
         guard let cid = Int64(newTelegramChatID.trimmingCharacters(in: .whitespaces)) else {
-            lastError = "Geçerli bir sayısal sohbet ID girin."
+            lastError = "Enter a valid numeric chat ID."
             return
         }
         newTelegramChatID = ""
@@ -395,8 +395,8 @@ final class AppModel: ObservableObject {
                 if case .string(let auth)? = claude["auth_status"] { claudeAuthStatus = auth }
                 if case .string(let command)? = claude["login_command"] { claudeLoginCommand = command }
                 claudeAuthHint = claudeAuthStatus == "authenticated"
-                    ? "Claude oturumu doğrulandı."
-                    : "Claude oturumu hazır değil. Terminalde `\(claudeLoginCommand)` çalıştırın."
+                    ? "Claude session authenticated."
+                    : "Claude session not ready. Run `\(claudeLoginCommand)` in Terminal."
             }
         }
         if case .object? = object["pending_automatic"] { pendingAutomatic = true } else { pendingAutomatic = false }
@@ -551,14 +551,14 @@ final class AppModel: ObservableObject {
         let board = NSPasteboard.general
         board.clearContents()
         board.setString(claudeLoginCommand, forType: .string)
-        statusText = "Claude giriş komutu panoya kopyalandı: \(claudeLoginCommand)"
+        statusText = "Copied Claude login command to clipboard: \(claudeLoginCommand)"
     }
 
     private func parseRunResult(_ value: JSONValue?) {
         guard case .object(let object) = value else { return }
         if case .object(let verification)? = object["usage_window_verification"],
            case .bool(let verified)? = verification["verified"] {
-            usageWindowText = verified ? "Resmî reset zamanı doğrulandı" : "5 saatlik tahmin kullanılıyor"
+            usageWindowText = verified ? "Official reset time verified" : "Using 5-hour estimate"
         }
     }
 
@@ -583,14 +583,14 @@ final class AppModel: ObservableObject {
                 if case .string(let message)? = details["message"] { return message }
                 return nil
             } ?? ""
-            return note.isEmpty ? "Çalıştırma başarılı. Model: \(model)." : "Çalıştırma başarılı. Model: \(model).\n\(note)"
+            return note.isEmpty ? "Run successful. Model: \(model)." : "Run successful. Model: \(model).\n\(note)"
         }
         if command == "status", case .object(let object) = data {
-            let enabled = boolText(object["enabled"], on: "Açık", off: "Kapalı")
-            let background = boolText(object["background_enabled"], on: "Açık", off: "Kapalı")
-            let telegram = boolText(object["telegram_enabled"], on: "Açık", off: "Kapalı")
-            let nextRun = stringValue(object["next_run"]) ?? "Bilinmiyor"
-            return "Otomasyon: \(enabled)\nArka plan: \(background)\nTelegram: \(telegram)\nSonraki çalışma: \(nextRun)"
+            let enabled = boolText(object["enabled"], on: "On", off: "Off")
+            let background = boolText(object["background_enabled"], on: "On", off: "Off")
+            let telegram = boolText(object["telegram_enabled"], on: "On", off: "Off")
+            let nextRun = stringValue(object["next_run"]) ?? "Unknown"
+            return "Automation: \(enabled)\nBackground: \(background)\nTelegram: \(telegram)\nNext run: \(nextRun)"
         }
         if case .string(let value) = data { return value }
         return plainText(data)

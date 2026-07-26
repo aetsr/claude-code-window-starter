@@ -1,21 +1,21 @@
-# macOS uygulaması
+# macOS application
 
-scripts/install-macos.sh yerel backend release’ini oluşturur, Claude Window Starter.app paketini /Applications içine kurar ve launchd agent’larını yükler. Uygulama macOS 13+ hedefler ve Apple Silicon ile Intel x86_64 yollarını destekler.
+`scripts/install-macos.sh` creates a local backend release, installs the Claude Window Starter.app bundle into /Applications, and loads launchd agents. The application targets macOS 13+ and supports both Apple Silicon and Intel x86_64 paths.
 
-Menü uygulaması yalnız yerel JSON CLI’ı çağırır. Claude, Telegram, Bakım ve Kayıtlar sekmeleri aynı backend sözleşmesini kullanır.
+The menu application calls only the local JSON CLI. The Claude, Telegram, Maintenance, and Logs tabs all use the same backend contract.
 
-Arka plan segmenti açıkken helper:
+When the background segment is active, the helper:
 
-- internet yolunu NWPathMonitor ile izler,
-- boşta uyku için process-scoped IOPMAssertion tutar,
-- planlanan zamanı ve bekleyen ağı Python backend’e bildirir,
-- ekranın kararmasına izin verir.
+- monitors the network path with NWPathMonitor,
+- holds a process-scoped IOPMAssertion to prevent idle sleep,
+- reports the scheduled time and pending network state to the Python backend,
+- allows the display to sleep.
 
-Kapak kapatma zorunlu uyku olduğundan, accessoriesiz kapalı-kapak çalışma garanti edilmez. Sistem uyursa pending_automatic diske yazılır ve uyanışta bağlantı geldiğinde tek deneme yapılır.
+Because lid-close triggers a forced sleep, clamshell operation without accessories is not guaranteed. If the system sleeps, `pending_automatic` is written to disk and a single retry is performed when connectivity is restored after wake.
 
 Build:
 
     scripts/build-macos-app.sh
     codesign --verify --deep --strict "dist/Claude Window Starter.app"
 
-Paket ad-hoc imzalıdır; App Store signing/notarization kapsam dışıdır.
+The bundle is ad-hoc signed; App Store signing and notarization are out of scope.

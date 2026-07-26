@@ -1,23 +1,23 @@
-# Güvenlik modeli
+# Security model
 
-## Sırlar
+## Secrets
 
-Telegram tokenı SecureField/stdin üzerinden macOS Keychain’e yazılır. Token config, state, argv, environment, log veya release içine yazılmaz. Keychain’den okuyan launchd helper tokenı anonim stdin üzerinden bot process’ine aktarır.
+The Telegram token is written to the macOS Keychain via SecureField/stdin. The token is never written to config, state, argv, environment, logs, or a release. The launchd helper reads the token from Keychain and passes it to the bot process via anonymous stdin.
 
-Claude çalışması shell=False, prompt stdin, allowlist environment, boş araç seti, session persistence kapalı, capability-gated bayraklar ve timeout ile yürütülür. Yasaklı API/provider değişkenleri algılanırsa gerçek çağrı durur.
+Claude execution runs with `shell=False`, prompt via stdin, an allowlisted environment, an empty tool set, session persistence disabled, capability-gated flags, and a timeout. If prohibited API/provider variables are detected, the real call is aborted.
 
-## Arka plan
+## Background
 
-Uygulama yalnız process-scoped IOPMAssertion kullanır; pmset, sudo veya sistem genelindeki güç ayarlarını değiştirmez. Assertion ekran uykusunu engellemez. Kapak kapatma gibi zorunlu uyku durumlarında macOS çalışmayı durdurabilir; uyanma sonrası durum ve ağ yeniden değerlendirilir.
+The application uses only a process-scoped IOPMAssertion; it does not modify pmset, sudo, or any system-wide power settings. The assertion does not prevent display sleep. In forced-sleep situations such as lid-close, macOS may stop execution; state and network are re-evaluated after wake.
 
 ## Telegram
 
-Komutlar sayısal kullanıcı/sohbet allowlist’i, private-chat varsayılanı, cooldown, escaping ve kullanıcıya bağlı kısa ömürlü confirmation nonce’larıyla korunur. Polling offset’i atomik kaydedilir; bot lock çift instance’ı engeller. Ham Telegram update, tam stderr ve environment loglanmaz.
+Commands are protected by a numeric user/chat allowlist, a private-chat default, cooldown, escaping, and short-lived per-user confirmation nonces. The polling offset is saved atomically; a bot lock prevents double instances. Raw Telegram updates, full stderr, and the environment are not logged.
 
 ## Release
 
-Release’ler Mac’te immutable dizinlerde tutulur. Config, state, log ve Keychain dışı sırlar release’lerden bağımsızdır. current ve previous geçici symlink + atomik rename ile değiştirilir; post-health başarısızlığında eski release geri alınır. Beş release tutulurken aktif ve fallback release’ler korunur.
+Releases are kept in immutable directories on the Mac. Config, state, logs, and non-Keychain secrets are independent of releases. `current` and `previous` are swapped via a temporary symlink and atomic rename; the previous release is restored on post-health failure. Five releases are retained while active and fallback releases are protected.
 
-## Olay müdahalesi
+## Incident response
 
-Bir sır açığa çıkarsa önce tokenı iptal edin ve yenisini üretin. Loglarda yalnız sanitize edilmiş JSONL alanları bulunur. Sırları sohbet, issue veya Git geçmişine yapıştırmayın.
+If a secret is exposed, revoke the token first and generate a new one. Logs contain only sanitized JSONL fields. Do not paste secrets into conversations, issues, or the Git history.

@@ -1,12 +1,12 @@
-# Telegram kurulumu
+# Telegram setup
 
-1. BotFather ile bot oluşturun.
-2. Tokenı uygulamadaki SecureField’e yapıştırın ve Tokenı Keychain’e kaydet düğmesine basın.
-3. Sayısal Telegram kullanıcı ID’nizi ve private chat ID’nizi allowlist alanlarına girin.
-4. Gerekirse bildirim chat/kanal ID’sini ekleyin.
-5. Telegram’ı etkinleştirip ayarları kaydedin.
-6. Telegram bağlantısını test et düğmesine basın.
+1. Create a bot with BotFather.
+2. Paste the token into the SecureField in the application and press the Save Token to Keychain button.
+3. Enter your numeric Telegram user ID and private chat ID into the allowlist fields.
+4. Add a notification chat/channel ID if needed.
+5. Enable Telegram and save the settings.
+6. Press the Test Telegram connection button.
 
-Bot long polling kullanır ve inbound port açmaz. Kanal yalnızca bildirim hedefidir; komutlar allowlist içindeki private chat’lerden kabul edilir.
+The bot uses long polling and does not open any inbound port. The channel is a notification target only; commands are accepted from private chats present in the allowlist.
 
-Çalıştırma ve prompt değiştirme confirmation nonce ister. Token hiçbir zaman geri gösterilmez veya loglanmaz.
+Execution and prompt changes require a confirmation nonce. The token is never shown again or logged.

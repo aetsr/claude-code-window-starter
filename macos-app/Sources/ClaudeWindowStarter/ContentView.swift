@@ -11,7 +11,7 @@ struct ContentView: View {
                 .padding(.bottom, 10)
             Divider()
             TabView {
-                mainTab.tabItem { Label("Otomasyon", systemImage: "sparkles") }
+                mainTab.tabItem { Label("Automation", systemImage: "sparkles") }
                 telegramTab.tabItem { Label("Telegram", systemImage: "paperplane") }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -47,15 +47,15 @@ struct ContentView: View {
                 LogoMark(size: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Claude Window Starter").font(.headline)
-                    Text("Mac üzerinde güvenli otomasyon").font(.caption).foregroundStyle(.secondary)
+                    Text("Secure automation on Mac").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 // Sleep mode control
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("Uyku önleme").font(.caption2).foregroundStyle(.secondary)
+                    Text("Sleep prevention").font(.caption2).foregroundStyle(.secondary)
                     Picker("", selection: $model.settings.backgroundEnabled) {
-                        Text("Kapalı").tag(false)
-                        Text("Açık").tag(true)
+                        Text("Off").tag(false)
+                        Text("On").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 130)
@@ -65,7 +65,7 @@ struct ContentView: View {
             if model.settings.backgroundEnabled {
                 HStack(spacing: 6) {
                     Image(systemName: "moon.zzz.fill").foregroundStyle(.orange).font(.caption)
-                    Text("Uyku önleme açık — ekran kararabilir, pil tüketimi artabilir.")
+                    Text("Sleep prevention is on — screen may dim, battery usage may increase.")
                         .font(.caption).foregroundStyle(.orange)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,16 +73,16 @@ struct ContentView: View {
 
             // Status pills
             HStack(spacing: 6) {
-                StatusPill(title: "İnternet", value: model.networkOnline ? "Bağlı" : "Yok",
+                StatusPill(title: "Internet", value: model.networkOnline ? "Connected" : "None",
                            color: model.networkOnline ? .green : .orange)
-                StatusPill(title: "Uyku", value: model.powerAssertion ? "Açık" : "Kapalı",
+                StatusPill(title: "Sleep", value: model.powerAssertion ? "On" : "Off",
                            color: model.powerAssertion ? .blue : .secondary)
-                StatusPill(title: "Otomasyon", value: model.settings.enabled ? "Açık" : "Kapalı",
+                StatusPill(title: "Automation", value: model.settings.enabled ? "On" : "Off",
                            color: model.settings.enabled ? .green : .secondary)
-                StatusPill(title: "Telegram", value: model.telegramBotRunning ? "Çalışıyor" : (model.settings.telegramEnabled ? "Bekliyor" : "Kapalı"),
+                StatusPill(title: "Telegram", value: model.telegramBotRunning ? "Running" : (model.settings.telegramEnabled ? "Waiting" : "Off"),
                            color: model.telegramBotRunning ? .green : (model.settings.telegramEnabled ? .orange : .secondary))
                 if model.automationBlocked {
-                    StatusPill(title: "Müdahale gerekli", value: "!", color: .red)
+                    StatusPill(title: "Action required", value: "!", color: .red)
                 }
                 Spacer()
                 if model.busy {
@@ -101,8 +101,8 @@ struct ContentView: View {
                 settingsCard {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Otomasyon").font(.subheadline).fontWeight(.medium)
-                            Text("Zamanlanmış pencere tetiklemelerini etkinleştirir")
+                            Text("Automation").font(.subheadline).fontWeight(.medium)
+                            Text("Enables scheduled window triggers")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -110,7 +110,7 @@ struct ContentView: View {
                     }
                     Divider()
                     HStack {
-                        Text("Zaman dilimi").font(.subheadline)
+                        Text("Timezone").font(.subheadline)
                         Spacer()
                         TextField("Europe/Istanbul", text: $model.settings.timezone)
                             .textFieldStyle(.roundedBorder)
@@ -121,7 +121,7 @@ struct ContentView: View {
 
                 // 5-hour calibration
                 calibrationCard(
-                    title: "5 Saatlik Limit",
+                    title: "5-Hour Limit",
                     icon: "clock.fill",
                     isEnabled: $model.settings.fiveHourEnabled,
                     isCalibrated: model.fiveHourIsCalibrated,
@@ -133,7 +133,7 @@ struct ContentView: View {
                 ) {
                     // Time-remaining input for 5-hour
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(model.fiveHourIsCalibrated ? "Kalan süreyi güncelle" : "Şu an ne kadar süre kaldı?")
+                        Text(model.fiveHourIsCalibrated ? "Update remaining time" : "How much time is left right now?")
                             .font(.caption).foregroundStyle(.secondary)
                         HStack(spacing: 10) {
                             HStack(spacing: 4) {
@@ -142,7 +142,7 @@ struct ContentView: View {
                                     .frame(width: 44)
                                     .multilineTextAlignment(.center)
                                 Stepper("", value: $model.fiveHourRemainingHours, in: 0...4).labelsHidden()
-                                Text("saat").font(.caption).foregroundStyle(.secondary)
+                                Text("h").font(.caption).foregroundStyle(.secondary)
                             }
                             HStack(spacing: 4) {
                                 TextField("", value: $model.fiveHourRemainingMinutes, format: .number)
@@ -150,10 +150,10 @@ struct ContentView: View {
                                     .frame(width: 44)
                                     .multilineTextAlignment(.center)
                                 Stepper("", value: $model.fiveHourRemainingMinutes, in: 0...59).labelsHidden()
-                                Text("dakika").font(.caption).foregroundStyle(.secondary)
+                                Text("m").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button(model.fiveHourIsCalibrated ? "Güncelle" : "Kaydet") {
+                            Button(model.fiveHourIsCalibrated ? "Update" : "Save") {
                                 model.saveWindowAnchor("five_hour")
                             }
                             .buttonStyle(.borderedProminent)
@@ -164,7 +164,7 @@ struct ContentView: View {
 
                 // Weekly calibration
                 calibrationCard(
-                    title: "Haftalık Limit",
+                    title: "Weekly Limit",
                     icon: "calendar",
                     isEnabled: $model.settings.weeklyEnabled,
                     isCalibrated: model.weeklyIsCalibrated,
@@ -175,7 +175,7 @@ struct ContentView: View {
                     calibrationError: model.weeklyCalibrationError
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(model.weeklyIsCalibrated ? "Reset zamanını güncelle" : "Son reset ne zamandı?")
+                        Text(model.weeklyIsCalibrated ? "Update reset time" : "When was the last reset?")
                             .font(.caption).foregroundStyle(.secondary)
                         HStack(spacing: 8) {
                             DatePicker("", selection: $model.weeklyAnchorDate,
@@ -183,7 +183,7 @@ struct ContentView: View {
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
                             Spacer()
-                            Button(model.weeklyIsCalibrated ? "Güncelle" : "Kaydet") {
+                            Button(model.weeklyIsCalibrated ? "Update" : "Save") {
                                 model.saveWindowAnchor("weekly")
                             }
                             .buttonStyle(.borderedProminent)
@@ -205,7 +205,7 @@ struct ContentView: View {
                     Divider()
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Prompt").font(.subheadline)
-                        TextField("Prompt girin…", text: $model.settings.prompt, axis: .vertical)
+                        TextField("Enter prompt…", text: $model.settings.prompt, axis: .vertical)
                             .textFieldStyle(.roundedBorder)
                             .lineLimit(3...6)
                     }
@@ -217,10 +217,10 @@ struct ContentView: View {
                     }
                     Divider()
                     HStack {
-                        Button("Şimdi çalıştır") { model.perform(["run", "--trigger", "macos_ui"]) }
+                        Button("Run now") { model.perform(["run", "--trigger", "macos_ui"]) }
                             .disabled(model.busy)
                         Spacer()
-                        Button("Kaydet") { model.saveConfiguration() }
+                        Button("Save") { model.saveConfiguration() }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.busy)
                     }
@@ -247,12 +247,12 @@ struct ContentView: View {
                                 .font(.system(size: 18))
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Telegram Botu").font(.subheadline).fontWeight(.semibold)
+                            Text("Telegram Bot").font(.subheadline).fontWeight(.semibold)
                             HStack(spacing: 5) {
                                 Circle()
                                     .fill(model.telegramBotRunning ? Color.green : Color.secondary)
                                     .frame(width: 6, height: 6)
-                                Text(model.telegramBotRunning ? "Çalışıyor" : "Durdu")
+                                Text(model.telegramBotRunning ? "Running" : "Stopped")
                                     .font(.caption)
                                     .foregroundStyle(model.telegramBotRunning ? .green : .secondary)
                             }
@@ -262,7 +262,7 @@ struct ContentView: View {
                     }
                     if model.settings.telegramEnabled {
                         Divider()
-                        Text("Kapak kapandığında uyku önleme açıksa bot çalışmaya devam eder.")
+                        Text("When the lid is closed, the bot continues running if sleep prevention is on.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -273,7 +273,7 @@ struct ContentView: View {
                         Button {
                             model.perform(["service", "telegram", "start"])
                         } label: {
-                            Label("Başlat", systemImage: "play.fill")
+                            Label("Start", systemImage: "play.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .disabled(model.busy || model.telegramBotRunning)
@@ -282,7 +282,7 @@ struct ContentView: View {
                         Button {
                             model.perform(["service", "telegram", "stop"])
                         } label: {
-                            Label("Durdur", systemImage: "stop.fill")
+                            Label("Stop", systemImage: "stop.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .disabled(model.busy || !model.telegramBotRunning)
@@ -292,7 +292,7 @@ struct ContentView: View {
                         Button {
                             model.perform(["service", "telegram", "restart"])
                         } label: {
-                            Label("Yeniden başlat", systemImage: "arrow.clockwise")
+                            Label("Restart", systemImage: "arrow.clockwise")
                                 .frame(maxWidth: .infinity)
                         }
                         .disabled(model.busy)
@@ -300,7 +300,7 @@ struct ContentView: View {
                     }
                     Divider()
                     HStack {
-                        Button("Bağlantıyı test et") { model.telegramTest() }
+                        Button("Test connection") { model.telegramTest() }
                             .disabled(model.busy)
                         Spacer()
                     }
@@ -316,35 +316,35 @@ struct ContentView: View {
                             Circle()
                                 .fill(model.telegramTokenConfigured ? Color.green : Color.orange)
                                 .frame(width: 7, height: 7)
-                            Text(model.telegramTokenConfigured ? "Kayıtlı" : "Kayıtlı değil")
+                            Text(model.telegramTokenConfigured ? "Saved" : "Not saved")
                                 .font(.caption2)
                                 .foregroundStyle(model.telegramTokenConfigured ? .green : .orange)
                         }
                     }
                     HStack(spacing: 8) {
-                        SecureField("BotFather'dan aldığınız token", text: $model.telegramToken)
+                        SecureField("Token from BotFather", text: $model.telegramToken)
                             .textFieldStyle(.roundedBorder)
-                        Button("Kaydet") { model.transferTelegramCredential() }
+                        Button("Save") { model.transferTelegramCredential() }
                             .disabled(model.telegramToken.isEmpty)
                             .buttonStyle(.borderedProminent)
                     }
                     if !model.telegramTokenConfigured {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption)
-                            Text("Token olmadan bot başlatılamaz ve eşleştirme yapılamaz.")
+                            Text("Without a token, the bot cannot start and pairing cannot be done.")
                                 .font(.caption).foregroundStyle(.orange)
                         }
                     } else {
-                        Text("Token Keychain'e şifreli kaydedildi.")
+                        Text("Token has been securely saved to Keychain.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
                 // ── Pairing ──────────────────────────────────────────────────
                 settingsCard {
-                    Label("Güvenli Eşleştirme", systemImage: "link.badge.plus")
+                    Label("Secure Pairing", systemImage: "link.badge.plus")
                         .font(.subheadline).fontWeight(.semibold)
-                    Text("Bota bu komutu gönderin:").font(.caption).foregroundStyle(.secondary)
+                    Text("Send this command to the bot:").font(.caption).foregroundStyle(.secondary)
                     Text("/pair \(model.telegramPairCode)")
                         .font(.system(.body, design: .monospaced))
                         .padding(8)
@@ -352,19 +352,19 @@ struct ContentView: View {
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         .textSelection(.enabled)
                     HStack(spacing: 8) {
-                        Button("Eşleştir ve etkinleştir") { model.pairTelegram() }
+                        Button("Pair and activate") { model.pairTelegram() }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.busy)
-                        Button("Yeni kod") { model.renewTelegramPairCode() }
+                        Button("New code") { model.renewTelegramPairCode() }
                     }
-                    Text("Eşleştirme tamamlandığında kullanıcı ve sohbet ID'leri otomatik eklenir.")
+                    Text("When pairing is complete, user and chat IDs are added automatically.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
                 // ── User Management ──────────────────────────────────────────
                 settingsCard {
                     HStack {
-                        Label("Yetkili Kullanıcılar", systemImage: "person.2.fill")
+                        Label("Authorized Users", systemImage: "person.2.fill")
                             .font(.subheadline).fontWeight(.semibold)
                         Spacer()
                         Button { model.loadTelegramUsers() } label: {
@@ -375,7 +375,7 @@ struct ContentView: View {
                     }
 
                     if model.telegramUserList.isEmpty {
-                        Text("Henüz kullanıcı eklenmemiş")
+                        Text("No users added yet")
                             .font(.caption).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 4)
@@ -405,7 +405,7 @@ struct ContentView: View {
 
                     Divider()
                     HStack(spacing: 8) {
-                        TextField("Kullanıcı ID ekle", text: $model.newTelegramUserID)
+                        TextField("Add user ID", text: $model.newTelegramUserID)
                             .textFieldStyle(.roundedBorder)
                         Button {
                             model.addTelegramUser()
@@ -419,11 +419,11 @@ struct ContentView: View {
 
                 // ── Chat Management ──────────────────────────────────────────
                 settingsCard {
-                    Label("Yetkili Sohbetler", systemImage: "bubble.left.and.bubble.right.fill")
+                    Label("Authorized Chats", systemImage: "bubble.left.and.bubble.right.fill")
                         .font(.subheadline).fontWeight(.semibold)
 
                     if model.telegramChatList.isEmpty {
-                        Text("Henüz sohbet eklenmemiş")
+                        Text("No chats added yet")
                             .font(.caption).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 4)
@@ -452,7 +452,7 @@ struct ContentView: View {
 
                     Divider()
                     HStack(spacing: 8) {
-                        TextField("Sohbet ID ekle", text: $model.newTelegramChatID)
+                        TextField("Add chat ID", text: $model.newTelegramChatID)
                             .textFieldStyle(.roundedBorder)
                         Button {
                             model.addTelegramChat()
@@ -466,16 +466,16 @@ struct ContentView: View {
 
                 // ── Notification Settings ────────────────────────────────────
                 settingsCard {
-                    Label("Bildirim Ayarları", systemImage: "bell.fill")
+                    Label("Notification Settings", systemImage: "bell.fill")
                         .font(.subheadline).fontWeight(.semibold)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Bildirim Hedefi").font(.caption).foregroundStyle(.secondary)
-                        TextField("Sohbet veya kanal ID", text: $model.settings.notificationID)
+                        Text("Notification Target").font(.caption).foregroundStyle(.secondary)
+                        TextField("Chat or channel ID", text: $model.settings.notificationID)
                             .textFieldStyle(.roundedBorder)
                     }
-                    Toggle("Bildirim hedefi kanal", isOn: $model.settings.notificationIsChannel)
+                    Toggle("Notification target is a channel", isOn: $model.settings.notificationIsChannel)
                         .font(.subheadline)
-                    Text("Bildirimler bu hedefe gönderilir (sonuç, hata, kalibrasyon uyarıları).")
+                    Text("Notifications are sent to this target (results, errors, calibration warnings).")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -494,7 +494,7 @@ struct ContentView: View {
                         .foregroundStyle(.red)
                         .font(.caption)
                         .lineLimit(2)
-                } else if !model.statusText.isEmpty && model.statusText != "Henüz kontrol edilmedi" {
+                } else if !model.statusText.isEmpty && model.statusText != "Not checked yet" {
                     Text(model.statusText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -503,7 +503,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button("Yenile") { model.perform(["status"]) }
+            Button("Refresh") { model.perform(["status"]) }
                 .disabled(model.busy)
         }
     }
@@ -563,7 +563,7 @@ struct ContentView: View {
             if isEnabled.wrappedValue && !isCalibrated {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
-                    Text("Otomasyon için önce kalibre edilmeli").font(.caption).foregroundStyle(.red)
+                    Text("Must be calibrated before automation can run").font(.caption).foregroundStyle(.red)
                 }
             }
 
@@ -582,7 +582,7 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Kalibrasyon hatası").fontWeight(.medium).font(.caption)
+                        Text("Calibration error").fontWeight(.medium).font(.caption)
                         if !calibrationError.isEmpty {
                             Text(calibrationError).font(.caption).foregroundStyle(.secondary)
                         }
@@ -632,6 +632,6 @@ struct LogoMark: View {
                 .offset(x: size * 0.08, y: -size * 0.05)
         }
         .frame(width: size, height: size)
-        .accessibilityLabel("Claude Window Starter logosu")
+        .accessibilityLabel("Claude Window Starter logo")
     }
 }
