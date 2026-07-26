@@ -123,14 +123,16 @@ def discover_claude() -> ClaudeCapabilities:
         help_text = result.stdout if result.returncode == 0 else ""
 
         result = _run_small([executable, "auth", "status", "--json"], timeout=5)
-        if result.returncode == 0:
-            try:
-                auth_data = json.loads(result.stdout)
-                authenticated = auth_data.get("loggedIn", auth_data.get("authenticated", False))
-                auth_status = "authenticated" if authenticated is True else "not_authenticated"
-                auth_method = auth_data.get("authMethod", auth_data.get("method"))
-            except (json.JSONDecodeError, ValueError):
-                pass
+        try:
+            auth_data = json.loads(result.stdout)
+            authenticated = auth_data.get("loggedIn", auth_data.get("authenticated"))
+            if authenticated is True:
+                auth_status = "authenticated"
+            elif authenticated is False:
+                auth_status = "not_authenticated"
+            auth_method = auth_data.get("authMethod", auth_data.get("method"))
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            pass
 
         if auth_status != "authenticated":
             login_command = "claude auth login"
@@ -314,14 +316,14 @@ def _invoke_once(
         raise AppError(ErrorCode.NONZERO_EXIT, "Claude returned invalid JSON") from exc
     if not isinstance(payload, dict):
         raise AppError(ErrorCode.NONZERO_EXIT, "Claude JSON result is not an object")
-    result = payload.get("result")
-    if not isinstance(result, str) or not result.strip():
+    response_value = payload.get("result")
+    if not isinstance(response_value, str) or not response_value.strip():
         raise AppError(ErrorCode.EMPTY_RESPONSE)
-    actual_model = payload.get("model")
+    actual_model: Any = payload.get("model")
     if not actual_model and isinstance(payload.get("modelUsage"), dict):
         actual_model = next(iter(payload["modelUsage"]), None)
     return {
-        "response": sanitize_text(result.strip(), 1000),
+        "response": sanitize_text(response_value.strip(), 1000),
         "selected_model": str(actual_model or model or "default"),
         "duration_seconds": duration,
         "exit_code": process.returncode,
@@ -354,9 +356,6 @@ def run_claude(
             "Disallowed API/provider credentials detected; real execution stopped",
             {"sources": capabilities.prohibited_credentials},
         )
-    if capabilities.auth_status == "not_authenticated":
-        raise _authentication_error(capabilities)
-
     if dry_run:
         return {
             "dry_run": True,
@@ -365,6 +364,9 @@ def run_claude(
             "would_use_model": config["model"],
             "real_request_sent": False,
         }
+
+    if capabilities.auth_status == "not_authenticated":
+        raise _authentication_error(capabilities)
 
     with FileLock(paths.run_lock, timeout=0, error_code=ErrorCode.ALREADY_RUNNING):
         state = load_state(paths)

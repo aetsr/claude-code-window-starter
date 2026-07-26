@@ -104,17 +104,17 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
 
     # v2→v3: Remove old automation fields, add windows section
     if version == 2:
-        migrated = copy.deepcopy(supplied)
-        migrated["schema_version"] = 3
+        migrated_v2 = copy.deepcopy(supplied)
+        migrated_v2["schema_version"] = 3
         # Remove deprecated v2 fields
-        migrated.pop("schedule_time", None)
-        migrated.pop("automation_mode", None)
-        migrated.pop("reset_grace_seconds", None)
-        migrated.pop("allow_catch_up", None)
-        migrated.pop("prevent_duplicate_daily_run", None)
+        migrated_v2.pop("schedule_time", None)
+        migrated_v2.pop("automation_mode", None)
+        migrated_v2.pop("reset_grace_seconds", None)
+        migrated_v2.pop("allow_catch_up", None)
+        migrated_v2.pop("prevent_duplicate_daily_run", None)
         # Ensure windows section exists (use defaults)
-        if "windows" not in migrated:
-            migrated["windows"] = {
+        if "windows" not in migrated_v2:
+            migrated_v2["windows"] = {
                 "five_hour": {
                     "enabled": True,
                     "anchor_iso": None,
@@ -126,7 +126,7 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
                     "interval_minutes": 10080,
                 },
             }
-        return migrated
+        return migrated_v2
 
     # v1→v2→v3
     if version != 1:

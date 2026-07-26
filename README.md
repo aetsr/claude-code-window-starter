@@ -76,7 +76,7 @@ scripts/uninstall-macos.sh --purge  # removes everything
 | **Settings** | `/setmodel` `/setprompt` `/settimezone` |
 | **Users** | `/users` `/adduser <id>` `/removeuser <id>` |
 
-`/usage` opens a short-lived, app-managed macOS Terminal window, starts Claude Code with the discovered absolute CLI path, runs `/usage`, then closes only that window. It does not need an open Claude terminal tab, but the service account needs macOS Automation permission to control Terminal.
+`/usage` starts Claude Code in a short-lived, app-owned pseudo-terminal (PTY), waits for the real interactive prompt, runs `/usage`, validates the returned subscription limits, and exits. The PTY is completely invisible: it never opens Terminal/iTerm, a window, or a tab, and no macOS Terminal Automation permission is needed. Run `claude auth login` once from your own shell before using this command; interactive authentication is intentionally never automated.
 
 All destructive actions (`/run`, `/setprompt`) require an inline confirmation tied to the originating user and chat. Polling offset is written atomically; a file lock prevents duplicate bot instances.
 
@@ -91,7 +91,7 @@ python3 -m claude_starter --home <dir> --json <command> [args]
 | Command | Description |
 |---------|-------------|
 | `status` | System status and window info |
-| `usage` | Read `/usage` in a temporary, app-managed Terminal window |
+| `usage` | Read `/usage` in an invisible, app-managed PTY |
 | `run` | Execute Claude with the configured prompt |
 | `calibrate` | Set window anchor (`--window-type five_hour\|weekly --anchor ISO`) |
 | `config` | Read / patch config (`get`, `set`, `patch-stdin`) |

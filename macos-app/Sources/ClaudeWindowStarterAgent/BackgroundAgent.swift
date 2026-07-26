@@ -28,6 +28,14 @@ actor BackgroundAgent {
         self.statusURL = self.base.appending(path: "shared/runtime/background.json")
     }
 
+    static func telegramProcessArguments(basePath: String, supervisorPID: Int32) -> [String] {
+        [
+            "-m", "claude_starter", "--home", basePath, "--json",
+            "telegram-bot", "--token-stdin", "--supervisor-pid",
+            String(supervisorPID),
+        ]
+    }
+
     func run() async {
         if mode == "run" {
             await runProtectedCommand()
@@ -129,7 +137,10 @@ actor BackgroundAgent {
         guard FileManager.default.isExecutableFile(atPath: python.path) else { return }
         let process = Process()
         process.executableURL = python
-        process.arguments = ["-m", "claude_starter", "--home", base.path, "--json", "telegram-bot", "--token-stdin"]
+        process.arguments = Self.telegramProcessArguments(
+            basePath: base.path,
+            supervisorPID: ProcessInfo.processInfo.processIdentifier
+        )
         process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         let input = Pipe()

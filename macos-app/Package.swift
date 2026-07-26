@@ -18,6 +18,9 @@ let package = Package(
                 .linkedFramework("Security")
             ]
         ),
-        .testTarget(name: "ClaudeWindowStarterTests", dependencies: ["ClaudeWindowStarter"])
+        .testTarget(
+            name: "ClaudeWindowStarterTests",
+            dependencies: ["ClaudeWindowStarter", "ClaudeWindowStarterAgent"]
+        )
     ]
 )

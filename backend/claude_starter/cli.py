@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser(
         "usage",
-        help="Read /usage through a temporary app-managed macOS Terminal window",
+        help="Read /usage through an invisible app-managed pseudo-terminal",
     )
 
     config_parser = sub.add_parser("config")
@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     bot = sub.add_parser("telegram-bot")
     bot.add_argument("--token-stdin", action="store_true")
+    bot.add_argument("--supervisor-pid", type=int)
     telegram_test = sub.add_parser("telegram-test")
     telegram_test.add_argument("--no-message", action="store_true")
     telegram_test.add_argument("--token-stdin", action="store_true")
@@ -337,7 +338,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         }
     if command == "telegram-bot":
         token = _read_token_stdin() if args.token_stdin else ""
-        TelegramBot(paths, token=token).run_forever()
+        TelegramBot(paths, token=token, supervisor_pid=args.supervisor_pid).run_forever()
         return "stopped", None
     if command == "telegram-test":
         token = _read_token_stdin() if args.token_stdin else ""

@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import io
 import json
+import ssl
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from typing import Any
 from unittest import mock
 
 from claude_starter.config import DEFAULT_CONFIG, save_config
+from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
-from claude_starter.telegram_api import split_message
+from claude_starter.state import load_state
+from claude_starter.telegram_api import TelegramAPI, split_message
 from claude_starter.telegram_bot import TelegramBot
 
 
@@ -17,11 +22,28 @@ class FakeAPI:
     def __init__(self) -> None:
         self.messages: list[tuple[int, str, dict[str, Any] | None]] = []
         self.callbacks: list[tuple[str, str]] = []
+        self.actions: list[tuple[int, str]] = []
+        self.events: list[str] = []
+        self.message_options: list[dict[str, Any]] = []
 
     def send_message(
-        self, chat_id: int, text: str, *, reply_markup: dict[str, Any] | None = None
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
+        auto_parse_mode: bool = True,
     ) -> None:
+        self.events.append("message")
         self.messages.append((chat_id, text, reply_markup))
+        self.message_options.append(
+            {"parse_mode": parse_mode, "auto_parse_mode": auto_parse_mode}
+        )
+
+    def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
+        self.events.append("typing")
+        self.actions.append((chat_id, action))
 
     def answer_callback(self, callback_id: str, text: str) -> None:
         self.callbacks.append((callback_id, text))
@@ -63,7 +85,25 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(self.api.messages[-1][1], "Unauthorized")
+        self.assertEqual(self.api.messages[-1][1], "Bu komut için yetkiniz yok.")
+        self.assertEqual(self.api.actions, [])
+
+    def test_usage_cooldown_stops_before_typing_and_query(self) -> None:
+        with (
+            mock.patch.object(self.bot, "_rate_allowed", return_value=False),
+            mock.patch("claude_starter.telegram_bot.query_usage") as query,
+        ):
+            self.bot.handle_update(
+                {
+                    "message": {
+                        "from": {"id": 100},
+                        "chat": {"id": 100, "type": "private"},
+                        "text": "/usage",
+                    }
+                }
+            )
+        query.assert_not_called()
+        self.assertEqual(self.api.actions, [])
 
     def test_setprompt_requires_owner_bound_confirmation(self) -> None:
         self.bot.handle_update(
@@ -99,7 +139,11 @@ class TelegramTests(unittest.TestCase):
         with mock.patch(
             "claude_starter.telegram_bot.query_usage",
             return_value={
-                "formatted_text": "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
+                "formatted_text": (
+                    "📊 Claude Kullanım Bilgisi\n"
+                    "• Current session [all] 40% used\n"
+                    "• Resets in 2h"
+                )
             },
         ):
             self.bot.handle_update(
@@ -112,6 +156,48 @@ class TelegramTests(unittest.TestCase):
                 }
             )
         self.assertIn("Claude Kullanım Bilgisi", self.api.messages[-1][1])
+        self.assertEqual(self.api.actions, [(100, "typing")])
+        self.assertEqual(self.api.events, ["typing", "message"])
+        self.assertFalse(self.api.message_options[-1]["auto_parse_mode"])
+
+    def test_usage_errors_are_short_turkish_plain_text(self) -> None:
+        errors = (
+            (
+                AppError(ErrorCode.ALREADY_RUNNING),
+                "Başka bir Claude işlemi çalışıyor",
+            ),
+            (
+                AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED),
+                "Claude abonelik oturumu açık değil",
+            ),
+            (AppError(ErrorCode.TIMEOUT), "zaman aşımına uğradı"),
+            (
+                AppError(ErrorCode.CLAUDE_USAGE_UNAVAILABLE),
+                "Claude kullanım bilgisi alınamadı",
+            ),
+        )
+        for error, expected in errors:
+            with self.subTest(code=error.code):
+                self.api = FakeAPI()
+                self.bot = TelegramBot(self.paths, self.api)  # type: ignore[arg-type]
+                with (
+                    mock.patch(
+                        "claude_starter.telegram_bot.query_usage",
+                        side_effect=error,
+                    ),
+                    mock.patch.object(self.bot, "_rate_allowed", return_value=True),
+                ):
+                    self.bot.handle_update(
+                        {
+                            "message": {
+                                "from": {"id": 100},
+                                "chat": {"id": 100, "type": "private"},
+                                "text": "/usage",
+                            }
+                        }
+                    )
+                self.assertIn(expected, self.api.messages[-1][1])
+                self.assertFalse(self.api.message_options[-1]["auto_parse_mode"])
 
     def test_confirm_callback_executes_for_owner(self) -> None:
         """The confirmation owner should be able to confirm and get an action response."""
@@ -206,7 +292,7 @@ class TelegramTests(unittest.TestCase):
             }
         )
         first_text = self.api.messages[-1][1]
-        self.assertNotEqual(first_text, "Rate limited; try again shortly.")
+        self.assertNotEqual(first_text, "Lütfen birkaç saniye sonra tekrar deneyin.")
         # Second /status is sent immediately (well within the 1-second cooldown)
         self.bot.handle_update(
             {
@@ -218,7 +304,7 @@ class TelegramTests(unittest.TestCase):
             }
         )
         second_text = self.api.messages[-1][1]
-        self.assertEqual(second_text, "Rate limited; try again shortly.")
+        self.assertEqual(second_text, "Lütfen birkaç saniye sonra tekrar deneyin.")
 
     def test_drain_notifications_preserves_concurrent_appends(self) -> None:
         """Items added to the queue while draining must not be lost."""
@@ -247,6 +333,191 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(remaining[0], "msg10")
         # The 10 items were sent
         self.assertEqual(len(self.api.messages), 10)
+
+    def test_worker_exits_after_poll_when_supervisor_is_gone(self) -> None:
+        class PollingAPI(FakeAPI):
+            def __init__(self) -> None:
+                super().__init__()
+                self.poll_timeouts: list[int] = []
+
+            def get_me(self) -> dict[str, Any]:
+                return {"id": 1}
+
+            def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+                del commands
+
+            def get_updates(self, offset: int, timeout: int = 10) -> list[dict[str, Any]]:
+                del offset
+                self.poll_timeouts.append(timeout)
+                return []
+
+        api = PollingAPI()
+        bot = TelegramBot(
+            self.paths,
+            api,  # type: ignore[arg-type]
+            supervisor_pid=1234,
+        )
+        with mock.patch.object(
+            bot,
+            "_supervisor_alive",
+            side_effect=[True, True, False],
+        ):
+            bot.run_forever()
+        self.assertEqual(api.poll_timeouts, [10])
+
+        from claude_starter.locks import FileLock
+
+        with FileLock(self.paths.bot_lock, timeout=0):
+            pass
+
+    def test_update_offset_advances_only_after_handler_completes(self) -> None:
+        class OneUpdateAPI(FakeAPI):
+            def get_me(self) -> dict[str, Any]:
+                return {"id": 1}
+
+            def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+                del commands
+
+            def get_updates(self, offset: int, timeout: int = 10) -> list[dict[str, Any]]:
+                del offset, timeout
+                return [{"update_id": 9}]
+
+        api = OneUpdateAPI()
+        bot = TelegramBot(self.paths, api)  # type: ignore[arg-type]
+        with (
+            mock.patch.object(
+                bot,
+                "_supervisor_alive",
+                side_effect=[True, True, True],
+            ),
+            mock.patch.object(
+                bot,
+                "handle_update",
+                side_effect=AppError(ErrorCode.TIMEOUT),
+            ),
+            mock.patch.object(bot, "_wait_for_retry", return_value=False),
+        ):
+            bot.run_forever()
+        self.assertEqual(load_state(self.paths).get("telegram_offset", 0), 0)
+
+    def test_update_offset_advances_after_handler_completes(self) -> None:
+        class OneUpdateAPI(FakeAPI):
+            def get_me(self) -> dict[str, Any]:
+                return {"id": 1}
+
+            def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+                del commands
+
+            def get_updates(self, offset: int, timeout: int = 10) -> list[dict[str, Any]]:
+                del offset, timeout
+                return [{"update_id": 9}]
+
+        api = OneUpdateAPI()
+        bot = TelegramBot(self.paths, api)  # type: ignore[arg-type]
+        with (
+            mock.patch.object(
+                bot,
+                "_supervisor_alive",
+                side_effect=[True, True, True, False],
+            ),
+            mock.patch.object(bot, "handle_update") as handle,
+        ):
+            bot.run_forever()
+        handle.assert_called_once_with({"update_id": 9})
+        self.assertEqual(load_state(self.paths).get("telegram_offset"), 10)
+
+    def test_supervisor_pid_must_match_actual_parent(self) -> None:
+        bot = TelegramBot(
+            self.paths,
+            self.api,  # type: ignore[arg-type]
+            supervisor_pid=4321,
+        )
+        with mock.patch("claude_starter.telegram_bot.os.getppid", return_value=1234):
+            self.assertFalse(bot._supervisor_alive())
+        with (
+            mock.patch("claude_starter.telegram_bot.os.getppid", return_value=4321),
+            mock.patch("claude_starter.telegram_bot.os.kill") as kill,
+        ):
+            self.assertTrue(bot._supervisor_alive())
+        kill.assert_called_once_with(4321, 0)
+
+
+class TelegramAPITests(unittest.TestCase):
+    def _api(self) -> TelegramAPI:
+        return TelegramAPI(
+            "test-token",
+            ssl_context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
+        )
+
+    def test_http_400_body_description_is_preserved_safely(self) -> None:
+        body = io.BytesIO(
+            json.dumps(
+                {
+                    "ok": False,
+                    "description": "Bad Request: can't parse entities",
+                }
+            ).encode()
+        )
+        error = urllib.error.HTTPError(
+            "https://api.telegram.org/",
+            400,
+            "Bad Request",
+            {},
+            body,
+        )
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(AppError) as context:
+                self._api().call("sendMessage", {"chat_id": 1, "text": "bad"})
+        self.assertEqual(context.exception.code, ErrorCode.TELEGRAM_API_ERROR)
+        self.assertEqual(context.exception.details["http_status"], 400)
+        self.assertIn("can't parse entities", context.exception.message)
+
+    def test_markdown_entity_400_retries_once_as_plain_text(self) -> None:
+        api = self._api()
+        payloads: list[dict[str, Any]] = []
+
+        def call(method: str, payload: dict[str, Any]) -> None:
+            self.assertEqual(method, "sendMessage")
+            payloads.append(dict(payload))
+            if len(payloads) == 1:
+                raise AppError(
+                    ErrorCode.TELEGRAM_API_ERROR,
+                    "Telegram HTTP 400: can't parse entities",
+                    {
+                        "http_status": 400,
+                        "description": "Bad Request: can't parse entities",
+                    },
+                )
+
+        with mock.patch.object(api, "call", side_effect=call):
+            api.send_message(1, "📊 *Usage [all]*")
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["parse_mode"], "Markdown")
+        self.assertNotIn("parse_mode", payloads[1])
+        self.assertEqual(payloads[1]["text"], payloads[0]["text"])
+
+    def test_usage_special_characters_are_sent_without_parse_mode(self) -> None:
+        api = self._api()
+        payloads: list[dict[str, Any]] = []
+
+        def call(method: str, payload: dict[str, Any]) -> None:
+            self.assertEqual(method, "sendMessage")
+            payloads.append(dict(payload))
+
+        with mock.patch.object(api, "call", side_effect=call):
+            api.send_message(
+                1,
+                "Current session: 40% [all] * literal _ text",
+                auto_parse_mode=False,
+            )
+        self.assertEqual(len(payloads), 1)
+        self.assertNotIn("parse_mode", payloads[0])
+
+    def test_long_poll_uses_short_bounded_http_timeout(self) -> None:
+        api = self._api()
+        with mock.patch.object(api, "call", return_value=[]) as call:
+            api.get_updates(7, timeout=10)
+        self.assertEqual(call.call_args.kwargs["request_timeout"], 15)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import XCTest
 @testable import ClaudeWindowStarter
+@testable import ClaudeWindowStarterAgent
 
 final class ClaudeWindowStarterTests: XCTestCase {
     func testEnvelopeDecodesV2SnakeCaseContract() throws {
@@ -29,5 +30,19 @@ final class ClaudeWindowStarterTests: XCTestCase {
         XCTAssertEqual(SettingsStore.load(defaults: defaults), settings)
         XCTAssertNil(defaults.string(forKey: "telegram_token"))
         XCTAssertNil(defaults.string(forKey: "claude_oauth_token"))
+    }
+
+    func testTelegramWorkerReceivesSupervisorPID() {
+        let arguments = BackgroundAgent.telegramProcessArguments(
+            basePath: "/tmp/ClaudeWindowStarter",
+            supervisorPID: 4321
+        )
+        XCTAssertEqual(
+            arguments,
+            [
+                "-m", "claude_starter", "--home", "/tmp/ClaudeWindowStarter", "--json",
+                "telegram-bot", "--token-stdin", "--supervisor-pid", "4321",
+            ]
+        )
     }
 }

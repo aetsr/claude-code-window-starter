@@ -11,4 +11,6 @@ The bot uses long polling and does not open any inbound port. The channel is a n
 
 Execution and prompt changes require a confirmation nonce. The token is never shown again or logged.
 
-`/usage` starts a short-lived, app-managed macOS Terminal window, sends `/usage`, reads the returned usage block, reformats it for Telegram, and closes only that window. It does not require an open Claude terminal tab, but macOS Automation permission for Terminal is required. If the Claude session cannot start, times out, or cannot provide usage data, the bot returns a readable error message.
+`/usage` sends a typing indicator, starts Claude Code in an invisible, app-owned pseudo-terminal (PTY), waits for the ready prompt, validates the real session/weekly usage block, and exits the child process. It never launches Terminal or iTerm and needs no macOS Terminal Automation permission. The result is sent as plain text so Claude output cannot break Telegram Markdown entities.
+
+Before the first `/usage` request, run `claude auth login` once interactively on the Mac. Login is intentionally not automated. Authentication, lock contention, unsupported `/usage`, empty output, and timeouts are returned as short Turkish messages. The polling worker checks its Swift supervisor before and after each approximately 10-second long poll, so an old release exits promptly after an upgrade.

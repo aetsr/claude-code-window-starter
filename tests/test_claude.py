@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -71,6 +72,23 @@ class ClaudeTests(unittest.TestCase):
         self.assertIn("2.1.test", capability.version or "")
         self.assertEqual(capability.auth_status, "authenticated")
         self.assertNotIn("help_text", capability.public_dict())
+
+    def test_discovery_parses_logged_out_json_even_when_cli_exits_one(self) -> None:
+        responses = [
+            subprocess.CompletedProcess([], 0, "2.1.test", ""),
+            subprocess.CompletedProcess([], 0, "--no-chrome", ""),
+            subprocess.CompletedProcess(
+                [],
+                1,
+                '{"loggedIn": false, "authMethod": "none"}',
+                "",
+            ),
+            subprocess.CompletedProcess([], 0, "auth login help", ""),
+        ]
+        with mock.patch("claude_starter.claude._run_small", side_effect=responses):
+            capability = discover_claude()
+        self.assertEqual(capability.auth_status, "not_authenticated")
+        self.assertEqual(capability.auth_method, "none")
 
     def test_dry_run_never_sends_request(self) -> None:
         result = run_claude(self.paths, self.config(), trigger="macos_ui", dry_run=True)

@@ -560,7 +560,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             bot, api, _ = self._bot_and_api(tmp)
             self._send(bot, "/status", user_id=999, chat_id=999)
             args = api.send_message.call_args[0]
-            self.assertIn("Unauthorized", args[1])
+            self.assertIn("yetkiniz yok", args[1])
 
     def test_help_is_string_not_json(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -8,6 +8,7 @@ import urllib.request
 from typing import Any
 
 from .errors import AppError, ErrorCode
+from .logging_utils import sanitize_text
 from .macos_trust import trusted_ssl_context
 
 
@@ -16,7 +17,7 @@ class TelegramAPI:
         self,
         token: str,
         *,
-        timeout: int = 60,
+        timeout: int = 15,
         ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._token = token
@@ -24,7 +25,13 @@ class TelegramAPI:
         self._base = f"https://api.telegram.org/bot{token}/"
         self._ssl_context = ssl_context or trusted_ssl_context()
 
-    def call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
+    def call(
+        self,
+        method: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        request_timeout: int | None = None,
+    ) -> Any:
         encoded = urllib.parse.urlencode(_encode_payload(payload or {})).encode("utf-8")
         request = urllib.request.Request(  # noqa: S310
             self._base + method,
@@ -34,12 +41,25 @@ class TelegramAPI:
         try:
             with urllib.request.urlopen(  # noqa: S310  # nosec B310
                 request,
-                timeout=self._timeout,
+                timeout=request_timeout or self._timeout,
                 context=self._ssl_context,
             ) as response:
                 body = response.read(2 * 1024 * 1024)
         except urllib.error.HTTPError as exc:
-            raise AppError(ErrorCode.TELEGRAM_API_ERROR, f"Telegram HTTP error {exc.code}") from exc
+            try:
+                error_body = exc.read(4096)
+            except (AttributeError, OSError, ValueError):
+                error_body = b""
+            description = _telegram_error_description(error_body)
+            message = f"Telegram HTTP {exc.code}: {description}"
+            raise AppError(
+                ErrorCode.TELEGRAM_API_ERROR,
+                sanitize_text(message, 300),
+                {
+                    "http_status": exc.code,
+                    "description": sanitize_text(description, 200),
+                },
+            ) from exc
         except urllib.error.URLError as exc:
             raise AppError(
                 ErrorCode.TELEGRAM_API_ERROR, "Telegram network request failed"
@@ -61,7 +81,7 @@ class TelegramAPI:
         result = self.call("getMe")
         return result if isinstance(result, dict) else {}
 
-    def get_updates(self, offset: int, timeout: int = 50) -> list[dict[str, Any]]:
+    def get_updates(self, offset: int, timeout: int = 10) -> list[dict[str, Any]]:
         result = self.call(
             "getUpdates",
             {
@@ -69,6 +89,7 @@ class TelegramAPI:
                 "timeout": timeout,
                 "allowed_updates": ["message", "callback_query"],
             },
+            request_timeout=max(5, timeout + 5),
         )
         return (
             [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
@@ -81,9 +102,9 @@ class TelegramAPI:
         *,
         reply_markup: dict[str, Any] | None = None,
         parse_mode: str | None = None,
+        auto_parse_mode: bool = True,
     ) -> None:
-        # Auto-detect Markdown only when message contains bold markers (*text*)
-        if parse_mode is None and "*" in text:
+        if auto_parse_mode and parse_mode is None and "*" in text:
             parse_mode = "Markdown"
         chunks = split_message(text)
         for index, chunk in enumerate(chunks):
@@ -92,7 +113,16 @@ class TelegramAPI:
                 payload["parse_mode"] = parse_mode
             if reply_markup is not None and index == len(chunks) - 1:
                 payload["reply_markup"] = reply_markup
-            self.call("sendMessage", payload)
+            try:
+                self.call("sendMessage", payload)
+            except AppError as exc:
+                if not parse_mode or not _is_entity_format_error(exc):
+                    raise
+                payload.pop("parse_mode", None)
+                self.call("sendMessage", payload)
+
+    def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
+        self.call("sendChatAction", {"chat_id": chat_id, "action": action})
 
     def answer_callback(self, callback_id: str, text: str) -> None:
         self.call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:200]})
@@ -111,6 +141,35 @@ def _encode_payload(payload: dict[str, Any]) -> dict[str, str | int]:
         elif value is not None:
             result[key] = value
     return result
+
+
+def _telegram_error_description(body: bytes) -> str:
+    try:
+        value = json.loads(body.decode("utf-8", errors="replace"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        value = None
+    if isinstance(value, dict) and isinstance(value.get("description"), str):
+        return value["description"][:200]
+    return "Telegram API error"
+
+
+def _is_entity_format_error(error: AppError) -> bool:
+    if error.code != ErrorCode.TELEGRAM_API_ERROR:
+        return False
+    details = error.details or {}
+    if details.get("http_status") != 400:
+        return False
+    description = str(details.get("description", error.message)).lower()
+    return any(
+        marker in description
+        for marker in (
+            "parse entities",
+            "can't parse entities",
+            "cant parse entities",
+            "entity",
+            "can't find end",
+        )
+    )
 
 
 def split_message(text: str, limit: int = 3900) -> list[str]:

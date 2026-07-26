@@ -15,7 +15,12 @@ BIN_DIR="$(swift build -c release --package-path "$ROOT/macos-app" --show-bin-pa
 
 # ── 2. Install .app to /Applications ─────────────────────────────────────────
 echo "Installing to $APP_DEST ..."
-pkill -x "Claude Window Starter" 2>/dev/null || true
+APP_EXECUTABLE="$APP_DEST/Contents/MacOS/ClaudeWindowStarter"
+while read -r app_pid app_command; do
+  if [[ "$app_command" == "$APP_EXECUTABLE" || "$app_command" == "$APP_EXECUTABLE "* ]]; then
+    kill -TERM "$app_pid" 2>/dev/null || true
+  fi
+done < <(/bin/ps -axo pid=,command=)
 sleep 0.5
 
 rm -rf "$APP_DEST"

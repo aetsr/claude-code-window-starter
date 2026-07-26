@@ -52,6 +52,10 @@ class AppPaths:
         return self.shared / "runtime"
 
     @property
+    def usage_workspace(self) -> Path:
+        return self.runtime_dir / "usage-workspace"
+
+    @property
     def run_lock(self) -> Path:
         return self.runtime_dir / "claude.lock"
 

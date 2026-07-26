@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import subprocess
 import time
@@ -22,7 +23,7 @@ HELP = """🤖 Claude Window Starter
 
 📊 Durum
 /status — Sistem durumu ve pencere bilgisi
-/usage — Geçici uygulama Terminal penceresinden kullanım bilgisini getir
+/usage — Görünmez arka plan oturumundan kullanım bilgisini getir
 /schedule — Sonraki çalışma zamanları
 /last — Son çalışma detayı
 /health — Sağlık kontrolü
@@ -78,11 +79,18 @@ def _fmt_dt(dt: Any, tz_name: str = "UTC") -> str:
 
 
 class TelegramBot:
-    def __init__(self, paths: AppPaths, api: TelegramAPI | None = None, token: str = "") -> None:
+    def __init__(
+        self,
+        paths: AppPaths,
+        api: TelegramAPI | None = None,
+        token: str = "",
+        supervisor_pid: int | None = None,
+    ) -> None:
         self.paths = paths
         self.config = load_config(paths, create=True)
         self.telegram = self.config["telegram"]
         self.api = api or TelegramAPI(token)
+        self.supervisor_pid = supervisor_pid
 
     def authorized(self, user_id: int, chat_id: int, chat_type: str) -> bool:
         if user_id not in self.telegram["allowed_user_ids"]:
@@ -153,20 +161,44 @@ class TelegramBot:
                 self.paths,
                 {"status": "unauthorized", "error_code": ErrorCode.TELEGRAM_UNAUTHORIZED.value},
             )
-            self.api.send_message(chat_id, "Unauthorized")
+            self.api.send_message(
+                chat_id,
+                "Bu komut için yetkiniz yok.",
+                auto_parse_mode=False,
+            )
             return
         if not self._rate_allowed(user_id):
-            self.api.send_message(chat_id, "Rate limited; try again shortly.")
+            self.api.send_message(
+                chat_id,
+                "Lütfen birkaç saniye sonra tekrar deneyin.",
+                auto_parse_mode=False,
+            )
             return
         command, _, argument = text.strip().partition(" ")
         command = command.split("@", 1)[0].lower()
         try:
+            if command == "/usage":
+                self.api.send_chat_action(chat_id, "typing")
             response, markup = self._command(command, argument.strip(), user_id, chat_id)
-            self.api.send_message(chat_id, response, reply_markup=markup)
+            self.api.send_message(
+                chat_id,
+                response,
+                reply_markup=markup,
+                auto_parse_mode=command != "/usage",
+            )
         except AppError as exc:
-            self.api.send_message(chat_id, f"{exc.code.value}: {exc.message}")
+            response = (
+                _usage_error_message(exc)
+                if command == "/usage"
+                else f"{exc.code.value}: {exc.message}"
+            )
+            self.api.send_message(chat_id, response, auto_parse_mode=False)
         except Exception:
-            self.api.send_message(chat_id, "INTERNAL_ERROR: Operation failed safely.")
+            self.api.send_message(
+                chat_id,
+                "INTERNAL_ERROR: Operation failed safely.",
+                auto_parse_mode=False,
+            )
 
     def _command(
         self, command: str, argument: str, user_id: int, chat_id: int
@@ -507,6 +539,8 @@ class TelegramBot:
     def run_forever(self) -> None:
         if not self.telegram["enabled"]:
             raise AppError(ErrorCode.CONFIG_INVALID, "Telegram is disabled")
+        if not self._supervisor_alive():
+            return
         self.api.get_me()
         try:
             self.api.set_my_commands([
@@ -531,10 +565,21 @@ class TelegramBot:
             pass
         with FileLock(self.paths.bot_lock, timeout=0, error_code=ErrorCode.ALREADY_RUNNING):
             while True:
+                if not self._supervisor_alive():
+                    log_event(self.paths, {"status": "telegram_supervisor_gone"})
+                    return
                 offset = int(load_state(self.paths).get("telegram_offset", 0))
                 try:
                     self._drain_notifications()
-                    for update in self.api.get_updates(offset):
+                    supervisor_gone = False
+                    try:
+                        updates = self.api.get_updates(offset, timeout=10)
+                    finally:
+                        supervisor_gone = not self._supervisor_alive()
+                    if supervisor_gone:
+                        log_event(self.paths, {"status": "telegram_supervisor_gone"})
+                        return
+                    for update in updates:
                         update_id = int(update.get("update_id", offset))
                         self.handle_update(update)
 
@@ -551,7 +596,8 @@ class TelegramBot:
                             "sanitized_error": exc.message,
                         },
                     )
-                    time.sleep(5)
+                    if not self._wait_for_retry(5):
+                        return
                 except Exception as exc:
                     log_event(
                         self.paths,
@@ -560,7 +606,27 @@ class TelegramBot:
                             "sanitized_error": str(exc)[:200],
                         },
                     )
-                    time.sleep(5)
+                    if not self._wait_for_retry(5):
+                        return
+
+    def _supervisor_alive(self) -> bool:
+        if self.supervisor_pid is None:
+            return True
+        if self.supervisor_pid <= 1 or os.getppid() != self.supervisor_pid:
+            return False
+        try:
+            os.kill(self.supervisor_pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
+    def _wait_for_retry(self, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if not self._supervisor_alive():
+                return False
+            time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+        return self._supervisor_alive()
 
     def _drain_notifications(self) -> None:
         target = self.telegram.get("notification_channel_id") or self.telegram.get(
@@ -590,6 +656,24 @@ class TelegramBot:
 
 def _pretty(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+
+
+def _usage_error_message(error: AppError) -> str:
+    messages = {
+        ErrorCode.ALREADY_RUNNING: "Başka bir Claude işlemi çalışıyor. Biraz sonra tekrar deneyin.",
+        ErrorCode.CLAUDE_NOT_AUTHENTICATED: (
+            "Claude abonelik oturumu açık değil. Mac'te bir kez claude auth login çalıştırın."
+        ),
+        ErrorCode.TIMEOUT: "Claude kullanım sorgusu zaman aşımına uğradı. Tekrar deneyin.",
+        ErrorCode.CLAUDE_USAGE_UNAVAILABLE: (
+            "Claude kullanım bilgisi alınamadı. Claude Code sürümünü ve oturumu kontrol edin."
+        ),
+        ErrorCode.API_KEY_DETECTED: (
+            "API/provider ayarı algılandı; abonelik kullanım sorgusu güvenlik için durduruldu."
+        ),
+        ErrorCode.CLAUDE_NOT_FOUND: "Claude Code bulunamadı.",
+    }
+    return messages.get(error.code, "Claude kullanım bilgisi alınamadı. Tekrar deneyin.")
 
 
 def _is_valid_time(value: str) -> bool:

@@ -4,6 +4,8 @@
 
 The menu application calls only the local JSON CLI. The Claude, Telegram, Maintenance, and Logs tabs all use the same backend contract.
 
+The Telegram `/usage` command uses a stdlib pseudo-terminal under `shared/runtime/usage-workspace`. The directory is verified as app-owned with mode `0700`; Claude is launched there with an absolute executable path, an allowlisted environment, no tools, `dontAsk` permission mode, Chrome disabled, and a strict empty MCP configuration. No GUI application or macOS Terminal Automation permission is involved.
+
 When the background segment is active, the helper:
 
 - monitors the network path with NWPathMonitor,

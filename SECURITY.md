@@ -6,6 +6,8 @@ The Telegram token is written to the macOS Keychain via SecureField/stdin. The t
 
 Claude execution runs with `shell=False`, prompt via stdin, an allowlisted environment, an empty tool set, session persistence disabled, capability-gated flags, and a timeout. If prohibited API/provider variables are detected, the real call is aborted.
 
+Subscription usage inspection runs in a separate, invisible stdlib PTY rooted at an app-owned `0700` workspace. It uses an absolute Claude CLI path, an allowlisted environment, no tools, `dontAsk` permission mode, Chrome disabled, and a strict empty MCP configuration. A workspace trust prompt is confirmed only for that verified directory. No Terminal/iTerm process, AppleScript, or Terminal Automation permission is used. Claude subscription login remains a manual `claude auth login` step.
+
 ## Background
 
 The application uses only a process-scoped IOPMAssertion; it does not modify pmset, sudo, or any system-wide power settings. The assertion does not prevent display sleep. In forced-sleep situations such as lid-close, macOS may stop execution; state and network are re-evaluated after wake.

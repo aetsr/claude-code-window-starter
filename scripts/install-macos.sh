@@ -65,11 +65,43 @@ PY
   plutil -lint "$destination" >/dev/null
 }
 
+terminate_stale_telegram_worker() {
+  local lock_file="$BASE/shared/runtime/telegram.lock"
+  local worker_pid=""
+  local worker_command=""
+  if [[ ! -f "$lock_file" ]]; then
+    return
+  fi
+  read -r worker_pid < "$lock_file" || true
+  if [[ ! "$worker_pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$worker_pid" 2>/dev/null; then
+    return
+  fi
+  worker_command="$(/bin/ps -p "$worker_pid" -o command= 2>/dev/null || true)"
+  if [[ "$worker_command" != *" -m claude_starter "* ||
+        "$worker_command" != *" --home $BASE "* ||
+        "$worker_command" != *" telegram-bot "* ]]; then
+    echo "Ignoring stale Telegram lock PID $worker_pid: process identity did not match." >&2
+    return
+  fi
+  kill -TERM "$worker_pid"
+  for _ in {1..12}; do
+    if ! kill -0 "$worker_pid" 2>/dev/null; then
+      return
+    fi
+    sleep 1
+  done
+  echo "Telegram worker PID $worker_pid did not stop after supervisor handoff." >&2
+  exit 1
+}
+
 install -d -m 0755 "$AGENT_DIR"
 # Remove the pre-2.0 single-job agent so it cannot trigger a second scheduler.
 legacy_label="com.openai.claude-window-starter"
 launchctl bootout "$DOMAIN/$legacy_label" >/dev/null 2>&1 || true
 rm -f "$AGENT_DIR/$legacy_label.plist"
+telegram_label="com.openai.claude-window-starter.telegram"
+launchctl bootout "$DOMAIN/$telegram_label" >/dev/null 2>&1 || true
+terminate_stale_telegram_worker
 for plist in "$SOURCE_ROOT"/launchd/*.plist; do
   label="$(basename "$plist" .plist)"
   render_plist "$plist" "$label"
