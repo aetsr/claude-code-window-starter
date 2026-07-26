@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from claude_starter import usage
 from claude_starter.config import DEFAULT_CONFIG
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
@@ -100,6 +101,17 @@ class UsageTests(unittest.TestCase):
     def test_strip_ansi_removes_csi_osc_and_cursor_sequences(self) -> None:
         raw = "\x1b]0;secret title\x07\x1b[31mUsage: 52%\x1b[0m\x1b[2A"
         self.assertEqual(strip_ansi(raw), "Usage: 52%")
+
+    def test_forceful_pty_cleanup_never_uses_blocking_waitpid(self) -> None:
+        process = usage._PtyProcess(pid=1234, descriptor=9)
+        with (
+            mock.patch("claude_starter.usage.os.waitpid", return_value=(0, 0)) as waitpid,
+            mock.patch("claude_starter.usage.os.killpg") as killpg,
+        ):
+            process.terminate(grace_seconds=0)
+
+        self.assertEqual(killpg.call_count, 2)
+        self.assertTrue(all(call.args[1] == os.WNOHANG for call in waitpid.call_args_list))
 
     def test_suffix_delta_prefers_overlap(self) -> None:
         self.assertEqual(

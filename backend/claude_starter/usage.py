@@ -151,11 +151,12 @@ class _PtyProcess:
             os.killpg(self.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        try:
-            _, status_value = os.waitpid(self.pid, 0)
-            self.returncode = os.waitstatus_to_exitcode(status_value)
-        except ChildProcessError:
-            self.returncode = 0
+        # Do not perform a blocking wait here.  A misbehaving child can remain
+        # alive even after SIGKILL (or be in an uninterruptible kernel wait),
+        # and a blocking waitpid would leave the Telegram worker holding the
+        # application lock forever.  The OS will reap it once it exits; this
+        # caller must always be allowed to close the PTY and release its lock.
+        self.poll()
 
     def close(self) -> None:
         try:
