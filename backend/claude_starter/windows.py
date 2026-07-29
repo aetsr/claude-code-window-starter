@@ -10,10 +10,13 @@ All datetime computations use UTC for reliability across timezone/DST boundaries
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from enum import StrEnum
 from typing import Any
 
-WINDOW_FIVE_HOUR = "five_hour"
-WINDOW_WEEKLY = "weekly"
+
+class WindowType(StrEnum):
+    FIVE_HOUR = "five_hour"
+    WEEKLY = "weekly"
 
 
 def _parse_iso(s: str) -> datetime:
@@ -89,7 +92,7 @@ def windows_due(
         now: Current time (defaults to UTC now)
 
     Returns:
-        List of window type strings that are due ("five_hour", "weekly")
+        List of window type values that are due (WindowType.FIVE_HOUR, WindowType.WEEKLY)
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -97,7 +100,7 @@ def windows_due(
     due = []
     windows_config = config.get("windows", {})
 
-    for wtype in (WINDOW_FIVE_HOUR, WINDOW_WEEKLY):
+    for wtype in (WindowType.FIVE_HOUR, WindowType.WEEKLY):
         w = windows_config.get(wtype, {})
 
         # Skip if disabled or no anchor configured
@@ -131,7 +134,7 @@ def advance_window(
     """Calculate the next run time after a successful trigger.
 
     Args:
-        wtype: Window type ("five_hour" or "weekly")
+        wtype: Window type (WindowType.FIVE_HOUR or WindowType.WEEKLY)
         config: Configuration dict
         now: Current time (defaults to UTC now)
 

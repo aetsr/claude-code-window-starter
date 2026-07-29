@@ -55,8 +55,8 @@ def service_status() -> dict[str, Any]:
         return {"ok": True, "available": False, "jobs": {}}
     jobs: dict[str, Any] = {}
     for label in (
-        "com.openai.claude-window-starter.background",
-        "com.openai.claude-window-starter.telegram",
+        "com.claude-window-starter.background",
+        "com.claude-window-starter.telegram",
     ):
         import subprocess
 

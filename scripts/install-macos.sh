@@ -100,10 +100,10 @@ terminate_stale_telegram_worker() {
 
 install -d -m 0755 "$AGENT_DIR"
 # Remove the pre-2.0 single-job agent so it cannot trigger a second scheduler.
-legacy_label="com.openai.claude-window-starter"
+legacy_label="com.claude-window-starter"
 launchctl bootout "$DOMAIN/$legacy_label" >/dev/null 2>&1 || true
 rm -f "$AGENT_DIR/$legacy_label.plist"
-telegram_label="com.openai.claude-window-starter.telegram"
+telegram_label="com.claude-window-starter.telegram"
 launchctl bootout "$DOMAIN/$telegram_label" >/dev/null 2>&1 || true
 terminate_stale_telegram_worker
 for plist in "$SOURCE_ROOT"/launchd/*.plist; do

@@ -20,6 +20,7 @@ from .io_utils import atomic_write_bytes
 from .logging_utils import log_event, rotate_logs, sanitize
 from .paths import AppPaths
 from .scheduler import next_runs, windows_due
+from .service_utils import send_mac_notification, service_action
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 from .telegram_bot import TelegramBot, notify
@@ -140,7 +141,7 @@ def _status(paths: AppPaths) -> dict[str, Any]:
     # Check whether the Telegram LaunchAgent is currently running
     telegram_running = False
     try:
-        _service_action("telegram", "status")
+        service_action("telegram", "status")
         telegram_running = True
     except AppError:
         telegram_running = False
@@ -328,7 +329,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                     notify(paths, msg)
                 except Exception:
                     pass
-                _send_mac_notification("Claude Window Starter", msg)
+                send_mac_notification("Claude Window Starter", msg)
             return "connectivity_recorded", {"online": True, "missed_windows": missed}
         # Return next scheduled window runs
         next_window_runs = next_runs(paths, config)
@@ -380,7 +381,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         )
         service_restarted = True
         try:
-            _service_action("telegram", "restart")
+            service_action("telegram", "restart")
         except AppError:
             service_restarted = False
         return "success", {
@@ -445,7 +446,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
 
         return "success", {"lines": tail_sanitized(paths.log_file, args.lines)}
     if command == "service":
-        return "success", _service_action(args.target, args.action)
+        return "success", service_action(args.target, args.action)
     if command == "version":
         return "success", {"application_version": __version__, "python": platform.python_version()}
     raise AppError(ErrorCode.CONFIG_INVALID, "Unknown command")
@@ -576,38 +577,3 @@ def _exit_code(code: ErrorCode) -> int:
     }:
         return 7
     return 4
-
-
-def _send_mac_notification(title: str, body: str) -> None:
-    """Send a macOS user notification via osascript (best-effort)."""
-    import subprocess as _sp
-    safe_title = title.replace('"', '\\"')
-    safe_body = body.replace('"', '\\"').replace("\n", " ")[:200]
-    try:
-        _sp.run(
-            ["osascript", "-e", f'display notification "{safe_body}" with title "{safe_title}"'],
-            timeout=5, check=False, capture_output=True,
-        )
-    except Exception:
-        pass
-
-
-def _service_action(target: str, action: str) -> dict[str, Any]:
-    launchctl = "/bin/launchctl"
-    if not Path(launchctl).exists():
-        raise AppError(ErrorCode.LAUNCHD_FAILED, "launchctl is unavailable")
-    label = f"com.openai.claude-window-starter.{target}"
-    domain = f"gui/{os.getuid()}"
-    if action == "status":
-        argv = [launchctl, "print", f"{domain}/{label}"]
-    elif action == "stop":
-        argv = [launchctl, "kill", "SIGTERM", f"{domain}/{label}"]
-    else:
-        argv = [launchctl, "kickstart", "-k" if action == "restart" else "", f"{domain}/{label}"]
-        argv = [item for item in argv if item]
-    process = subprocess.run(
-        argv, capture_output=True, text=True, timeout=20, check=False, shell=False
-    )
-    if process.returncode != 0:
-        raise AppError(ErrorCode.LAUNCHD_FAILED, f"Unable to {action} {target} service")
-    return {"label": label, "action": action, "output": process.stdout.strip()}

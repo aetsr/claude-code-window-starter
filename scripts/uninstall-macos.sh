@@ -14,7 +14,7 @@ elif [[ -n "${1:-}" ]]; then
   exit 2
 fi
 
-for plist in "$AGENT_DIR"/com.openai.claude-window-starter.*.plist; do
+for plist in "$AGENT_DIR"/com.claude-window-starter.*.plist; do
   [[ -e "$plist" ]] || continue
   label="$(basename "$plist" .plist)"
   launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
@@ -24,7 +24,7 @@ rm -rf "$APP"
 
 if [[ "$PURGE" == true ]]; then
   rm -rf "$BASE"
-  defaults delete com.openai.claude-window-starter >/dev/null 2>&1 || true
+  defaults delete com.claude-window-starter >/dev/null 2>&1 || true
   echo "Application, backend, settings, and local files removed. Keychain entries remain per account."
 else
   echo "Application and launch agents removed. Shared config/state remain at: $BASE"

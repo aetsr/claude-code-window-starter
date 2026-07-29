@@ -7,7 +7,7 @@
   <key>CFBundleExecutable</key>
   <string>ClaudeWindowStarter</string>
   <key>CFBundleIdentifier</key>
-  <string>com.openai.claude-window-starter</string>
+  <string>com.claude-window-starter</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleIconFile</key>

@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.openai.claude-window-starter.telegram</string>
+  <key>Label</key><string>com.claude-window-starter.telegram</string>
   <key>ProgramArguments</key>
   <array><string>@@AGENT@@</string><string>telegram</string></array>
   <key>RunAtLoad</key><true/>

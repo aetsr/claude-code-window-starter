@@ -3,7 +3,7 @@ import Security
 
 enum KeychainStore {
     static func save(_ value: String, account: String) throws {
-        let service = "com.openai.claude-window-starter"
+        let service = "com.claude-window-starter"
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -20,7 +20,7 @@ enum KeychainStore {
     static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.openai.claude-window-starter",
+            kSecAttrService as String: "com.claude-window-starter",
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne

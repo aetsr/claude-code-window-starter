@@ -1,17 +1,24 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "enabled": false,
   "background_enabled": false,
-  "automation_mode": "five_hour_window",
-  "reset_grace_seconds": 60,
-  "schedule_time": "08:00",
   "timezone": "Europe/Istanbul",
   "model": "auto",
   "prompt": "Respond with OK.",
   "timeout_seconds": 120,
-  "allow_catch_up": true,
-  "prevent_duplicate_daily_run": true,
   "log_retention_days": 30,
+  "windows": {
+    "five_hour": {
+      "enabled": true,
+      "anchor_iso": null,
+      "interval_minutes": 303
+    },
+    "weekly": {
+      "enabled": false,
+      "anchor_iso": null,
+      "interval_minutes": 10080
+    }
+  },
   "telegram": {
     "enabled": false,
     "allowed_user_ids": [],

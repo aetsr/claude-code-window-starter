@@ -9,6 +9,8 @@
 [![macOS](https://img.shields.io/badge/macOS-13%2B-black?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+[![Ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://github.com/astral-sh/ruff)
+[![Last commit](https://img.shields.io/github/last-commit/aetsr/claude-window-starter)](https://github.com/aetsr/claude-window-starter/commits/main)
 
 </div>
 
@@ -169,6 +171,8 @@ scripts/dry-run.sh
 - [Telegram Bot](docs/TELEGRAM.md)
 - [Local Releases](docs/LOCAL_RELEASES.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ---
 

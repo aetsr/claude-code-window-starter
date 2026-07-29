@@ -15,6 +15,7 @@ from .locks import FileLock
 from .logging_utils import log_event, tail_sanitized
 from .paths import AppPaths
 from .scheduler import next_runs
+from .service_utils import kickstart_local_job, service_action
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
 from .usage import query_usage
@@ -234,17 +235,17 @@ class TelegramBot:
                 f"Sonraki çalışmalar:\n{windows_str}{last_str}"
             ), None
         if command == "/start":
-            _service_action("background", "start")
+            service_action("background", "start")
             self.config["enabled"] = True
             save_config(self.paths, self.config)
             return "✅ Otomasyon etkinleştirildi ve arka plan servisi başlatıldı.", None
         if command == "/stop":
-            _service_action("background", "stop")
+            service_action("background", "stop")
             self.config["enabled"] = False
             save_config(self.paths, self.config)
             return "⏹ Otomasyon devre dışı bırakıldı ve arka plan servisi durduruldu.", None
         if command == "/restart":
-            _service_action("background", "restart")
+            service_action("background", "restart")
             return "♻️ Arka plan servisi yeniden başlatıldı.", None
         if command == "/run":
             return "🤖 Claude çalıştırılsın mı? Gerçek bir API isteği gönderilecek.", self._confirmation(
@@ -276,7 +277,7 @@ class TelegramBot:
             issues_str = ", ".join(issues) if issues else "—"
             return f"🔧 *Bakım Raporu*\nSağlık: {ok}\nSorunlar: {_md_escape(issues_str)}", None
         if command == "/dryrun":
-            _start_local_job("dry")
+            kickstart_local_job("dry")
             return "🧪 Kuru çalışma başlatıldı — Claude'a gerçek istek gönderilmeyecek.", None
         if command == "/diagnose":
             diag = diagnose(self.paths)
@@ -367,10 +368,10 @@ class TelegramBot:
             )
         if command in {"/timer", "/restarttimer"}:
             if command == "/restarttimer":
-                _service_action("background", "restart")
+                service_action("background", "restart")
                 return "♻️ Arka plan servisi yeniden başlatıldı.", None
             try:
-                _service_action("background", "status")
+                service_action("background", "status")
                 return "✅ Arka plan servisi çalışıyor.", None
             except AppError:
                 return "❌ Arka plan servisi çalışmıyor.", None
@@ -529,7 +530,7 @@ class TelegramBot:
             return
         action = str(confirmation["action"])
         if action == "run":
-            _start_local_job("telegram")
+            kickstart_local_job("telegram")
         elif action == "setprompt":
             config = load_config(self.paths, create=True)
             config["prompt"] = str(confirmation.get("value", ""))
@@ -730,49 +731,6 @@ def _validate_time(value: str) -> None:
         datetime.strptime(value, "%H:%M")
     except ValueError as exc:
         raise AppError(ErrorCode.CONFIG_INVALID, "Time must use HH:MM") from exc
-
-
-def _start_local_job(trigger: str) -> None:
-    import os
-
-    launchctl = "/bin/launchctl"
-    domain = f"gui/{os.getuid()}"
-    process = subprocess.run(
-        [launchctl, "kickstart", "-k", f"{domain}/com.openai.claude-window-starter.run-{trigger}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=10,
-        check=False,
-        shell=False,
-    )
-    if process.returncode != 0:
-        raise AppError(ErrorCode.LAUNCHD_FAILED, "Unable to start local run service")
-
-
-def _service_action(target: str, action: str) -> dict[str, Any]:
-    import os
-
-    label = f"com.openai.claude-window-starter.{target}"
-    domain = f"gui/{os.getuid()}"
-    if action == "status":
-        argv = ["/bin/launchctl", "print", f"{domain}/{label}"]
-    elif action == "stop":
-        argv = ["/bin/launchctl", "kill", "SIGTERM", f"{domain}/{label}"]
-    elif action == "start":
-        argv = ["/bin/launchctl", "kickstart", f"{domain}/{label}"]
-    else:
-        argv = ["/bin/launchctl", "kickstart", "-k", f"{domain}/{label}"]
-    process = subprocess.run(
-        argv,
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-        shell=False,
-    )
-    if process.returncode != 0:
-        raise AppError(ErrorCode.LAUNCHD_FAILED, f"Unable to {action} {target} service")
-    return {"label": label, "action": action, "output": process.stdout.strip()}
 
 
 def notify(paths: AppPaths, text: str) -> None:

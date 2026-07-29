@@ -60,7 +60,7 @@ jobs:
         run: scripts/build-macos-app.sh dist
       - name: launchd plist
         run: |
-          plutil -lint launchd/com.openai.claude-window-starter.plist
+          plutil -lint launchd/com.claude-window-starter.background.plist
           plutil -lint macos-app/Resources/Info.plist
       - name: Shell syntax
         run: for file in scripts/*.sh; do bash -n "$file"; done

@@ -71,7 +71,7 @@ actor BackgroundAgent {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             Task { await self?.networkPathChanged(path.status == .satisfied) }
         }
-        pathMonitor.start(queue: DispatchQueue(label: "com.openai.claude-window-starter.network"))
+        pathMonitor.start(queue: DispatchQueue(label: "com.claude-window-starter.network"))
         defer { pathMonitor.cancel() }
 
         while !Task.isCancelled {
@@ -342,7 +342,7 @@ enum KeychainStore {
     static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.openai.claude-window-starter",
+            kSecAttrService as String: "com.claude-window-starter",
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
