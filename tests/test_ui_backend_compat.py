@@ -422,7 +422,7 @@ class TelegramServiceTests(unittest.TestCase):
 
     def _service(self, paths: AppPaths, action: str) -> tuple[int, dict]:
         with mock.patch(
-            "claude_starter.cli._service_action",
+            "claude_starter.cli.service_action",
             return_value={"label": "com.test", "action": action, "output": ""},
         ):
             return _run(["--home", str(paths.base), "--json",

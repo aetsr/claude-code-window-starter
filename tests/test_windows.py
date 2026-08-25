@@ -6,8 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from claude_starter.windows import (
-    WINDOW_FIVE_HOUR,
-    WINDOW_WEEKLY,
+    WindowType,
     _parse_iso,
     advance_window,
     current_window_start,
@@ -15,6 +14,9 @@ from claude_starter.windows import (
     next_window_after,
     windows_due,
 )
+
+WINDOW_FIVE_HOUR = WindowType.FIVE_HOUR
+WINDOW_WEEKLY = WindowType.WEEKLY
 
 
 class WindowsTests(unittest.TestCase):

@@ -209,7 +209,7 @@ class TestConnectivityFlow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._setup_with_overdue_window(tmp)
             with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli._send_mac_notification"):
+                 mock.patch("claude_starter.cli.send_mac_notification"):
                 rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             self.assertEqual(rc, 0)
             self.assertIn("five_hour", env["data"]["missed_windows"])
@@ -229,7 +229,7 @@ class TestConnectivityFlow(unittest.TestCase):
                 "network_went_offline_at": (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
             }))
             with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli._send_mac_notification"):
+                 mock.patch("claude_starter.cli.send_mac_notification"):
                 rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             self.assertEqual(rc, 0)
             self.assertEqual(env["data"]["missed_windows"], [])
@@ -241,7 +241,7 @@ class TestConnectivityFlow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             paths = _cfg(tmp)
             with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli._send_mac_notification"):
+                 mock.patch("claude_starter.cli.send_mac_notification"):
                 rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             self.assertEqual(rc, 0)
             self.assertEqual(env["data"]["missed_windows"], [])
@@ -251,7 +251,7 @@ class TestConnectivityFlow(unittest.TestCase):
             paths = self._setup_with_overdue_window(tmp)
             notify_calls = []
             with mock.patch("claude_starter.cli.notify", side_effect=lambda p, m: notify_calls.append(m)), \
-                 mock.patch("claude_starter.cli._send_mac_notification"):
+                 mock.patch("claude_starter.cli.send_mac_notification"):
                 _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             self.assertEqual(len(notify_calls), 1)
             self.assertIn("5 saatlik", notify_calls[0])
@@ -261,7 +261,7 @@ class TestConnectivityFlow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._setup_with_overdue_window(tmp)
             with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli._send_mac_notification"):
+                 mock.patch("claude_starter.cli.send_mac_notification"):
                 _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             # Now recalibrate
             anchor = datetime.now(timezone.utc).isoformat()
@@ -440,7 +440,7 @@ class TestTelegramPairAppend(unittest.TestCase):
             api_mock.get_updates.return_value = self._mock_updates(999, 888, "TESTCODE")
 
             with mock.patch("claude_starter.cli.TelegramAPI", return_value=api_mock), \
-                 mock.patch("claude_starter.cli._service_action"), \
+                 mock.patch("claude_starter.cli.service_action"), \
                  mock.patch("claude_starter.cli._read_token_stdin", return_value="fake-token"):
                 status, data = execute(args, paths)
 
@@ -791,18 +791,18 @@ class TestSchedulerZSuffix(unittest.TestCase):
 
 class TestMacNotification(unittest.TestCase):
     def test_send_mac_notification_does_not_raise(self):
-        from claude_starter.cli import _send_mac_notification
+        from claude_starter.service_utils import send_mac_notification
         with mock.patch("subprocess.run") as mock_run:
             mock_run.return_value = mock.MagicMock(returncode=0)
-            _send_mac_notification("Title", "Body message")
+            send_mac_notification("Title", "Body message")
             mock_run.assert_called_once()
 
     def test_send_mac_notification_escapes_quotes(self):
-        from claude_starter.cli import _send_mac_notification
+        from claude_starter.service_utils import send_mac_notification
         with mock.patch("subprocess.run") as mock_run:
             mock_run.return_value = mock.MagicMock(returncode=0)
             # Should not raise even with quotes in title/body
-            _send_mac_notification('Title "with quotes"', 'Body "with quotes"')
+            send_mac_notification('Title "with quotes"', 'Body "with quotes"')
             mock_run.assert_called_once()
 
 
