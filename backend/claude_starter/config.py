@@ -15,7 +15,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 4,
     "enabled": False,
     "background_enabled": False,
-    "timezone": "Europe/Istanbul",
+    "timezone": "Europe/Berlin",
     "model": "auto",
     "prompt": "Respond with OK.",
     "timeout_seconds": 120,

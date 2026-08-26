@@ -142,7 +142,7 @@ struct ContentView: View {
                     HStack {
                         Text("Timezone").font(.subheadline)
                         Spacer()
-                        TextField("Europe/Istanbul", text: $model.settings.timezone)
+                        TextField("Europe/Berlin", text: $model.settings.timezone)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 180)
                             .multilineTextAlignment(.trailing)

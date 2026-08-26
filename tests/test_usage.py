@@ -365,6 +365,8 @@ class UsageTests(unittest.TestCase):
             help_text=SAFE_HELP,
         )
         with (
+            mock.patch("claude_starter.usage._read_usage_cache", return_value=None),
+            mock.patch("claude_starter.usage._read_oauth_token", return_value=None),
             mock.patch("claude_starter.usage.discover_claude", return_value=capabilities),
             mock.patch(
                 "claude_starter.usage.run_usage_session",
@@ -394,6 +396,8 @@ class UsageTests(unittest.TestCase):
             help_text=SAFE_HELP,
         )
         with (
+            mock.patch("claude_starter.usage._read_usage_cache", return_value=None),
+            mock.patch("claude_starter.usage._read_oauth_token", return_value=None),
             mock.patch("claude_starter.usage.discover_claude", return_value=capabilities),
             mock.patch(
                 "claude_starter.usage.FileLock.acquire",
@@ -412,6 +416,8 @@ class UsageTests(unittest.TestCase):
             login_command="claude auth login",
         )
         with (
+            mock.patch("claude_starter.usage._read_usage_cache", return_value=None),
+            mock.patch("claude_starter.usage._read_oauth_token", return_value=None),
             mock.patch("claude_starter.usage.discover_claude", return_value=capabilities),
             mock.patch("claude_starter.usage._spawn_pty_process") as spawn,
         ):
@@ -428,6 +434,8 @@ class UsageTests(unittest.TestCase):
             help_text=SAFE_HELP,
         )
         with (
+            mock.patch("claude_starter.usage._read_usage_cache", return_value=None),
+            mock.patch("claude_starter.usage._read_oauth_token", return_value=None),
             mock.patch("claude_starter.usage.discover_claude", return_value=capabilities),
             mock.patch("claude_starter.usage.run_usage_session", return_value="API Usage Billing"),
         ):
@@ -435,13 +443,31 @@ class UsageTests(unittest.TestCase):
                 query_usage(self.paths, self.config)
         self.assertEqual(context.exception.code, ErrorCode.CLAUDE_USAGE_UNAVAILABLE)
 
+    def test_query_usage_prefers_oauth_api_over_pty(self) -> None:
+        api_data = {
+            "limits": [
+                {"kind": "session", "percent": 15, "resets_at": None},
+                {"kind": "weekly_all", "percent": 42, "resets_at": "2026-09-01T00:00:00Z"},
+            ],
+        }
+        with (
+            mock.patch("claude_starter.usage._read_usage_cache", return_value=None),
+            mock.patch("claude_starter.usage._read_oauth_token", return_value="fake-token"),
+            mock.patch("claude_starter.usage._query_usage_api", return_value=api_data),
+            mock.patch("claude_starter.usage.discover_claude") as discover,
+        ):
+            result = query_usage(self.paths, self.config)
+        discover.assert_not_called()
+        self.assertEqual(result["source"], "oauth_api")
+        self.assertEqual(result["limits"]["five_hour"]["used_percentage"], 15.0)
+        self.assertEqual(result["limits"]["weekly"]["used_percentage"], 42.0)
+
     def test_usage_implementation_has_no_terminal_or_osascript_automation(self) -> None:
         import claude_starter.usage as usage
 
         source = Path(usage.__file__).read_text(encoding="utf-8")
         self.assertNotIn("osascript", source.lower())
         self.assertNotIn('application "terminal"', source.lower())
-        self.assertNotIn("subprocess", source)
 
 
 if __name__ == "__main__":

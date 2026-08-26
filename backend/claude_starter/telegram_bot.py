@@ -106,7 +106,12 @@ def _fmt_dt(dt: Any, tz_name: str = "UTC") -> str:
         local = dt.astimezone(ZoneInfo(tz_name))
         month = MONTHS[local.month - 1]
         place = tz_name.split("/")[-1]
-        return f"{local.day} {month} {local.year}, {local.strftime('%H:%M')} ({place})"
+        base = f"{local.day} {month} {local.year}, {local.strftime('%H:%M')} ({place})"
+        # Also show Turkey time when primary timezone is not Istanbul.
+        if tz_name != "Europe/Istanbul":
+            tr = dt.astimezone(ZoneInfo("Europe/Istanbul"))
+            base += f" / {tr.strftime('%H:%M')} TR"
+        return base
     except Exception:
         return str(dt)[:16]
 

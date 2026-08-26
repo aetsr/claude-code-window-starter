@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import json
 import os
 import pty
 import re
@@ -9,6 +10,7 @@ import select
 import signal
 import stat
 import struct
+import subprocess
 import termios
 import time
 from dataclasses import dataclass
@@ -78,7 +80,178 @@ _REQUIRED_SAFE_FLAGS = (
     "--strict-mcp-config",
 )
 _MAX_TRANSCRIPT_BYTES = 256 * 1024
-_STARTUP_COMMAND_FALLBACK_SECONDS = 3.0
+_STARTUP_COMMAND_FALLBACK_SECONDS = 6.0
+
+_USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage"
+_KEYCHAIN_SERVICE = "Claude Code-credentials"
+_USAGE_CACHE_MAX_AGE_SECONDS = 300
+
+
+def _read_oauth_token() -> str | None:
+    """Read the Claude Code OAuth access token from the macOS Keychain."""
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-a", os.environ.get("USER", ""), "-s", _KEYCHAIN_SERVICE, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        creds = json.loads(result.stdout.strip())
+        oauth = creds.get("claudeAiOauth", {})
+        return oauth.get("accessToken")
+    except (json.JSONDecodeError, OSError, subprocess.TimeoutExpired, KeyError):
+        return None
+
+
+def _query_usage_api(token: str, timeout: int = 10) -> dict[str, Any] | None:
+    """Query the Anthropic OAuth usage API directly.
+
+    Returns the raw API response dict, or None on failure.
+    Uses curl for reliable TLS on macOS (Python's ssl module may lack
+    system root certificates).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "curl",
+                "-s",
+                "-f",
+                "--max-time",
+                str(timeout),
+                "-H",
+                f"Authorization: Bearer {token}",
+                "-H",
+                "anthropic-beta: oauth-2025-04-20",
+                "-H",
+                "Content-Type: application/json",
+                _USAGE_API_URL,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 5,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def _api_response_to_result(
+    data: dict[str, Any], config: dict[str, Any]
+) -> dict[str, Any]:
+    """Convert the OAuth usage API response to the standard result format."""
+    captured_at = datetime.now(timezone.utc)
+    tz_name = str(config.get("timezone", "UTC"))
+
+    limits: dict[str, dict[str, Any] | None] = {"five_hour": None, "weekly": None}
+
+    # Parse from the 'limits' array (most structured format)
+    for entry in data.get("limits", []):
+        kind = entry.get("kind", "")
+        pct = entry.get("percent")
+        resets_at = entry.get("resets_at")
+        if pct is None:
+            continue
+        if kind == "session":
+            limits["five_hour"] = {
+                "used_percentage": float(pct),
+                "resets_at": resets_at,
+            }
+        elif kind == "weekly_all":
+            limits["weekly"] = {
+                "used_percentage": float(pct),
+                "resets_at": resets_at,
+            }
+
+    # Fallback: parse from top-level five_hour / seven_day fields
+    if limits["five_hour"] is None:
+        fh = data.get("five_hour")
+        if isinstance(fh, dict) and fh.get("utilization") is not None:
+            limits["five_hour"] = {
+                "used_percentage": float(fh["utilization"]),
+                "resets_at": fh.get("resets_at"),
+            }
+    if limits["weekly"] is None:
+        sd = data.get("seven_day")
+        if isinstance(sd, dict) and sd.get("utilization") is not None:
+            limits["weekly"] = {
+                "used_percentage": float(sd["utilization"]),
+                "resets_at": sd.get("resets_at"),
+            }
+
+    # Build formatted text with both Germany and Turkey times
+    lines = []
+    label_map = {"five_hour": "5 Saatlik Oturum", "weekly": "Haftalık"}
+    for key in ("five_hour", "weekly"):
+        entry = limits.get(key)
+        if entry and entry.get("used_percentage") is not None:
+            pct = entry["used_percentage"]
+            reset_str = ""
+            if entry.get("resets_at"):
+                try:
+                    reset_dt = datetime.fromisoformat(entry["resets_at"])
+                    de_tz = ZoneInfo("Europe/Berlin")
+                    tr_tz = ZoneInfo("Europe/Istanbul")
+                    de_local = reset_dt.astimezone(de_tz)
+                    tr_local = reset_dt.astimezone(tr_tz)
+                    reset_str = (
+                        f" — Sıfırlanma: {de_local.strftime('%d.%m %H:%M')} DE"
+                        f" / {tr_local.strftime('%H:%M')} TR"
+                    )
+                except (ValueError, KeyError):
+                    pass
+            lines.append(f"{label_map[key]}: %{pct:.0f} kullanıldı{reset_str}")
+
+    usage_text = "\n".join(lines) if lines else "Kullanım bilgisi mevcut değil."
+    formatted = "📊 Claude Kullanım Bilgisi\n" + "\n".join(f"• {line}" for line in lines) if lines else ""
+
+    result = {
+        "captured_at": captured_at.isoformat(),
+        "source": "oauth_api",
+        "freshness_seconds": 0,
+        "fresh": True,
+        "usage_text": usage_text,
+        "formatted_text": formatted,
+        "limits": limits,
+    }
+    return result
+
+
+def _read_usage_cache(paths: AppPaths) -> dict[str, Any] | None:
+    """Read cached usage data if it exists and is fresh enough."""
+    cache_file = paths.usage_status_file
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    captured_at_str = data.get("captured_at")
+    if not captured_at_str:
+        return None
+    try:
+        captured_at = datetime.fromisoformat(captured_at_str)
+        age = (datetime.now(timezone.utc) - captured_at).total_seconds()
+    except (ValueError, TypeError):
+        return None
+    if age > _USAGE_CACHE_MAX_AGE_SECONDS:
+        return None
+    data["freshness_seconds"] = int(age)
+    data["fresh"] = age <= 60
+    return data
+
+
+def _write_usage_cache(paths: AppPaths, result: dict[str, Any]) -> None:
+    """Persist the latest usage result for cache reads."""
+    cache_file = paths.usage_status_file
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
+        tmp.replace(cache_file)
+    except OSError:
+        pass
 
 
 class UsageSessionState(str, Enum):
@@ -176,10 +349,27 @@ def query_usage(
     paths: AppPaths,
     config: dict[str, Any],
     *,
-    timeout_seconds: int = 20,
+    timeout_seconds: int = 30,
     poll_interval_seconds: float = 0.1,
 ) -> dict[str, Any]:
-    """Read Claude subscription usage in a GUI-free, app-owned pseudo-terminal."""
+    """Read Claude subscription usage via OAuth API, cache, or PTY fallback."""
+    # 1. Try reading from recent cache first.
+    cached = _read_usage_cache(paths)
+    if cached and cached.get("limits"):
+        return cached
+
+    # 2. Try the direct OAuth usage API (fast, reliable).
+    token = _read_oauth_token()
+    if token:
+        api_data = _query_usage_api(token)
+        if api_data:
+            result = _api_response_to_result(api_data, config)
+            if result.get("limits", {}).get("five_hour") or result.get("limits", {}).get("weekly"):
+                update_state(paths, lambda state: state.__setitem__("usage_observation", result))
+                _write_usage_cache(paths, result)
+                return result
+
+    # 3. Fallback: PTY-based interactive session (slower, less reliable).
     capabilities = discover_claude()
     if capabilities.executable is None:
         raise AppError(ErrorCode.CLAUDE_NOT_FOUND)
@@ -226,6 +416,7 @@ def query_usage(
         "limits": limits,
     }
     update_state(paths, lambda state: state.__setitem__("usage_observation", result))
+    _write_usage_cache(paths, result)
     return result
 
 
@@ -487,6 +678,9 @@ def run_usage_session(
     result_seen_at: float | None = None
     latest_result = ""
     started_at = time.monotonic()
+    # Reset the fallback reference after trust confirmation so we wait
+    # for the TUI to fully initialise post-confirmation.
+    fallback_reference = started_at
     deadline = started_at + timeout_seconds
 
     try:
@@ -520,8 +714,11 @@ def run_usage_session(
                         )
                     process.write(b"\r")
                     trust_confirmed = True
+                    # Reset the fallback timer so the TUI has a full
+                    # startup interval after the trust dialog is dismissed.
+                    fallback_reference = time.monotonic()
                 elif _READY_PROMPT_RE.search(normalized) or (
-                    now - started_at >= _STARTUP_COMMAND_FALLBACK_SECONDS
+                    now - fallback_reference >= _STARTUP_COMMAND_FALLBACK_SECONDS
                 ):
                     # The fallback mirrors the proven PTY approach used by
                     # standalone Claude usage collectors: allow the TUI a
