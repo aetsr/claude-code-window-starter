@@ -230,7 +230,7 @@ class TelegramBot:
         except AppError as exc:
             response = (
                 _usage_error_message(exc)
-                if command == "/usage"
+                if command in {"/usage", "/sync_usage"}
                 else f"{exc.code.value}: {exc.message}"
             )
             self.api.send_message(chat_id, response, auto_parse_mode=False)

@@ -31,7 +31,11 @@ _ANSI_OSC_RE = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)", re.DOTALL)
 _ANSI_STRING_RE = re.compile(r"\x1b[P_X^].*?\x1b\\", re.DOTALL)
 _ANSI_SINGLE_RE = re.compile(r"\x1b[@-_]")
 _WHITESPACE_RE = re.compile(r"\s+")
-_READY_PROMPT_RE = re.compile(r"(?:^|\n)\s*[❯>]\s*(?:\n|$)")
+# Claude Code's prompt is not necessarily an otherwise-empty line.  Recent
+# releases render a rotating suggestion after the prompt marker (for example
+# ``❯ Try "..."``), so waiting for a bare marker can leave a healthy TUI idle
+# until the outer timeout expires.
+_READY_PROMPT_RE = re.compile(r"(?:^|\n)\s*[❯>](?:\s|\u00a0)")
 _TRUST_RE = re.compile(
     r"(?:do you trust (?:the )?(?:files|folder)|trust this (?:folder|workspace)|"
     r"yes,\s*(?:i )?trust|yes,\s*proceed)",
@@ -74,6 +78,7 @@ _REQUIRED_SAFE_FLAGS = (
     "--strict-mcp-config",
 )
 _MAX_TRANSCRIPT_BYTES = 256 * 1024
+_STARTUP_COMMAND_FALLBACK_SECONDS = 3.0
 
 
 class UsageSessionState(str, Enum):
@@ -481,7 +486,8 @@ def run_usage_session(
     usage_sent = False
     result_seen_at: float | None = None
     latest_result = ""
-    deadline = time.monotonic() + timeout_seconds
+    started_at = time.monotonic()
+    deadline = started_at + timeout_seconds
 
     try:
         while time.monotonic() < deadline:
@@ -514,7 +520,14 @@ def run_usage_session(
                         )
                     process.write(b"\r")
                     trust_confirmed = True
-                elif _READY_PROMPT_RE.search(normalized):
+                elif _READY_PROMPT_RE.search(normalized) or (
+                    now - started_at >= _STARTUP_COMMAND_FALLBACK_SECONDS
+                ):
+                    # The fallback mirrors the proven PTY approach used by
+                    # standalone Claude usage collectors: allow the TUI a
+                    # short fixed startup interval, then type the slash
+                    # command.  Trust and authentication screens are always
+                    # checked first and therefore remain fail-closed.
                     state = UsageSessionState.READY
                     process.write(b"/usage\r")
                     usage_sent = True

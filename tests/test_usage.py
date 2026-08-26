@@ -217,6 +217,38 @@ class UsageTests(unittest.TestCase):
         self.assertEqual(fake.terminate_calls, 1)
         self.assertEqual(fake.close_calls, 1)
 
+    def test_prompt_with_suggestion_is_ready_without_waiting_for_timeout(self) -> None:
+        fake = FakePtyProcess(
+            [
+                'Welcome back\n❯ Try "how does AppModel.swift work?"\n',
+                SUCCESS_TRANSCRIPT,
+            ]
+        )
+        output = self._run_fake(fake)
+        self.assertIn("Current session", output)
+        self.assertEqual(fake.writes, [b"/usage\r", b"\x1b", b"/exit\r"])
+
+    def test_startup_fallback_sends_usage_when_prompt_marker_is_not_rendered(self) -> None:
+        fake = FakePtyProcess(["Welcome to Claude Code", SUCCESS_TRANSCRIPT])
+        clock = iter([0.0, 0.0, 3.1, 3.1, 3.5])
+        with (
+            mock.patch("claude_starter.usage._spawn_pty_process", return_value=fake),
+            mock.patch(
+                "claude_starter.usage.time.monotonic",
+                side_effect=lambda: next(clock, 3.5),
+            ),
+        ):
+            output = run_usage_session(
+                sys.executable,
+                workspace=prepare_usage_workspace(self.paths),
+                help_text=SAFE_HELP,
+                environment={"HOME": str(Path.home()), "PATH": os.environ["PATH"]},
+                timeout_seconds=10,
+                poll_interval_seconds=0,
+            )
+        self.assertIn("Current session", output)
+        self.assertIn(b"/usage\r", fake.writes)
+
     def test_real_stdlib_pty_round_trip_with_fake_cli(self) -> None:
         executable = Path(self.temporary.name) / "fake-claude"
         executable.write_text(
@@ -304,11 +336,12 @@ class UsageTests(unittest.TestCase):
 
     def test_startup_timeout_cleans_process_and_descriptor(self) -> None:
         fake = FakePtyProcess(["starting"])
+        clock = iter([0.0, 0.0, 0.0, 0.0, 2.0])
         with (
             mock.patch("claude_starter.usage._spawn_pty_process", return_value=fake),
             mock.patch(
                 "claude_starter.usage.time.monotonic",
-                side_effect=[0.0, 0.0, 0.0, 2.0],
+                side_effect=lambda: next(clock, 2.0),
             ),
         ):
             with self.assertRaises(AppError) as context:

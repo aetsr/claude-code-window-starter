@@ -557,7 +557,24 @@ class TelegramAPITests(unittest.TestCase):
         api = self._api()
         with mock.patch.object(api, "call", return_value=[]) as call:
             api.get_updates(7, timeout=10)
-        self.assertEqual(call.call_args.kwargs["request_timeout"], 15)
+        self.assertEqual(call.call_args.kwargs["request_timeout"], 30)
+
+    def test_long_poll_socket_timeout_is_an_empty_poll(self) -> None:
+        api = self._api()
+        error = AppError(
+            ErrorCode.TELEGRAM_API_ERROR,
+            "Telegram network request timed out",
+            {"timeout": True},
+        )
+        with mock.patch.object(api, "call", side_effect=error):
+            self.assertEqual(api.get_updates(7, timeout=10), [])
+
+    def test_call_classifies_raw_read_timeout(self) -> None:
+        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("read timed out")):
+            with self.assertRaises(AppError) as context:
+                self._api().call("getMe")
+        self.assertEqual(context.exception.code, ErrorCode.TELEGRAM_API_ERROR)
+        self.assertTrue(context.exception.details["timeout"])
 
 
 if __name__ == "__main__":

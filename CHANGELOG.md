@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Offline/wake behavior expires stale anchors instead of replaying missed work
 - Version advanced to 2.1.0 across Python, wheel scripts, and the macOS bundle
 
+### Fixed
+- Claude Code prompts containing a rotating suggestion are recognized before issuing `/usage`; a bounded three-second PTY startup fallback prevents false query timeouts
+- Telegram long-poll socket expiry is treated as an empty poll with a wider HTTP deadline, preventing repeated timeout/backoff loops
+- `/sync_usage` now returns the same concise, user-facing usage errors as `/usage`
+
 ### Removed
 - Obsolete Linux systemd verification from the macOS-only CI workflow
 

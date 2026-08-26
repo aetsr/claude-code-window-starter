@@ -60,8 +60,23 @@ class TelegramAPI:
                     "description": sanitize_text(description, 200),
                 },
             ) from exc
+        except TimeoutError as exc:
+            raise AppError(
+                ErrorCode.TELEGRAM_API_ERROR,
+                "Telegram network request timed out",
+                {"timeout": True},
+            ) from exc
         except urllib.error.URLError as exc:
-            raise AppError(ErrorCode.TELEGRAM_API_ERROR, "Telegram network request failed") from exc
+            timed_out = isinstance(exc.reason, TimeoutError)
+            raise AppError(
+                ErrorCode.TELEGRAM_API_ERROR,
+                (
+                    "Telegram network request timed out"
+                    if timed_out
+                    else "Telegram network request failed"
+                ),
+                {"timeout": timed_out},
+            ) from exc
         try:
             result = json.loads(body)
         except json.JSONDecodeError as exc:
@@ -80,15 +95,27 @@ class TelegramAPI:
         return result if isinstance(result, dict) else {}
 
     def get_updates(self, offset: int, timeout: int = 10) -> list[dict[str, Any]]:
-        result = self.call(
-            "getUpdates",
-            {
-                "offset": offset,
-                "timeout": timeout,
-                "allowed_updates": ["message", "callback_query"],
-            },
-            request_timeout=max(5, timeout + 5),
-        )
+        try:
+            result = self.call(
+                "getUpdates",
+                {
+                    "offset": offset,
+                    "timeout": timeout,
+                    "allowed_updates": ["message", "callback_query"],
+                },
+                # The HTTP read deadline must leave comfortable room beyond
+                # Telegram's server-side long-poll deadline.  Five seconds was
+                # insufficient on the real Mac/network and produced repeated
+                # ``The read operation timed out`` failures.
+                request_timeout=max(30, timeout + 20),
+            )
+        except AppError as exc:
+            if exc.code == ErrorCode.TELEGRAM_API_ERROR and (exc.details or {}).get("timeout"):
+                # An expired long-poll is equivalent to an empty update set;
+                # immediately open the next poll instead of entering the
+                # bot-wide five-second error backoff.
+                return []
+            raise
         return (
             [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
         )
