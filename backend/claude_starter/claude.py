@@ -6,14 +6,13 @@ import json
 import os
 import platform
 import subprocess
-import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import local_now
 from .errors import AppError, ErrorCode
 from .locks import FileLock
 from .logging_utils import log_event, sanitize_text
@@ -165,7 +164,7 @@ def _clean_environment(paths: AppPaths, config: dict[str, Any]) -> dict[str, str
         "HOME": str(Path.home()),
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "LANG": "en_US.UTF-8",
-        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        "TMPDIR": os.environ.get("TMPDIR", tempfile.gettempdir()),
         "CLAUDE_CODE_SKIP_PROMPT_HISTORY": "1",
     }
 
@@ -309,7 +308,9 @@ def _invoke_once(
                         classify_text = f"{classify_text}\n{result}".strip()
             except json.JSONDecodeError:
                 pass
-        raise _classify_failure(classify_text or stderr, stdout, process.returncode or 1, capabilities)
+        raise _classify_failure(
+            classify_text or stderr, stdout, process.returncode or 1, capabilities
+        )
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -332,7 +333,12 @@ def _invoke_once(
 
 
 def run_claude(
-    paths: AppPaths, config: dict[str, Any], *, trigger: str, window_type: str | None = None, dry_run: bool
+    paths: AppPaths,
+    config: dict[str, Any],
+    *,
+    trigger: str,
+    window_type: str | None = None,
+    dry_run: bool,
 ) -> dict[str, Any]:
     """Run Claude with the given configuration.
 
@@ -432,3 +438,20 @@ def run_claude(
             **result,
             "real_request_sent": True,
         }
+
+
+ANCHOR_PROMPT = "Reply with exactly OK. Do not use tools."
+
+
+def run_anchor(paths: AppPaths, config: dict[str, Any]) -> dict[str, Any]:
+    """Open a quota window with one fixed Haiku request and no model fallback."""
+    anchor_config = dict(config)
+    anchor_config["model"] = "haiku"
+    anchor_config["prompt"] = ANCHOR_PROMPT
+    return run_claude(
+        paths,
+        anchor_config,
+        trigger="adaptive_anchor",
+        window_type="five_hour",
+        dry_run=False,
+    )

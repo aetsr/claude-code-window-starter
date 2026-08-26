@@ -2,24 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
-import subprocess
 import sys
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .claude import run_claude
+from .claude import run_anchor, run_claude
 from .config import load_config, save_config, set_config_value
 from .errors import AppError, ErrorCode
 from .health import diagnose, health_report
-from .io_utils import atomic_write_bytes
 from .logging_utils import log_event, rotate_logs, sanitize
 from .paths import AppPaths
-from .scheduler import next_runs, windows_due
+from .scheduler import next_runs, schedule_snapshot, tick_schedule
 from .service_utils import send_mac_notification, service_action
 from .state import load_state, update_state
 from .telegram_api import TelegramAPI
@@ -32,7 +28,7 @@ def envelope(
     ok: bool, status: str, data: Any = None, error: AppError | None = None
 ) -> dict[str, Any]:
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "ok": ok,
         "status": status,
         "error": error.to_dict() if error else None,
@@ -83,10 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
     schedule = sub.add_parser("schedule")
     schedule.add_argument("--apply-launchd", action="store_true")
     schedule.add_argument(
+        "--tick", action="store_true", help="Evaluate one idempotent scheduler tick"
+    )
+    schedule.add_argument(
         "--network-state",
         choices=["online", "offline"],
         help=argparse.SUPPRESS,
     )
+    sub.add_parser("anchor", help=argparse.SUPPRESS)
 
     bot = sub.add_parser("telegram-bot")
     bot.add_argument("--token-stdin", action="store_true")
@@ -127,6 +127,8 @@ def _status(paths: AppPaths) -> dict[str, Any]:
     for wtype in ("five_hour", "weekly"):
         w = config.get("windows", {}).get(wtype, {})
         next_run = runs.get(wtype)
+        if wtype == "five_hour" and w.get("mode") == "adaptive":
+            next_run = None
         countdown = format_countdown(next_run, now) if next_run else "—"
         windows_status[wtype] = {
             "enabled": w.get("enabled", False),
@@ -146,6 +148,8 @@ def _status(paths: AppPaths) -> dict[str, Any]:
     except AppError:
         telegram_running = False
 
+    adaptive = schedule_snapshot(paths, config, now=now)
+    legacy_next = adaptive.get("next_action_at")
     return {
         "enabled": config["enabled"],
         "background_enabled": config["background_enabled"],
@@ -153,6 +157,8 @@ def _status(paths: AppPaths) -> dict[str, Any]:
         "telegram_enabled": config["telegram"]["enabled"],
         "telegram_service_running": telegram_running,
         "windows": windows_status,
+        "schedule": adaptive,
+        "next_run_at": legacy_next,
         "last_run": state.get("last_run"),
         "health": health_report(paths),
     }
@@ -183,7 +189,9 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         window_type = args.window_type
         started = datetime.now(timezone.utc).isoformat()
         try:
-            result = run_claude(paths, config, trigger=trigger, window_type=window_type, dry_run=bool(args.dry_run))
+            result = run_claude(
+                paths, config, trigger=trigger, window_type=window_type, dry_run=bool(args.dry_run)
+            )
             if (
                 not args.dry_run
                 and window_type  # only notify on scheduled window runs, not manual UI triggers
@@ -191,11 +199,15 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 and config["telegram"]["notify_success"]
             ):
                 window_label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
-                notify(paths, f"✅ {window_label} pencere tamamlandı.\nModel: {result['selected_model']}")
+                notify(
+                    paths,
+                    f"✅ {window_label} pencere tamamlandı.\nModel: {result['selected_model']}",
+                )
             rotate_logs(paths, config["log_retention_days"])
 
             # Update window state on success
             if window_type and not args.dry_run:
+
                 def update_window(state: dict[str, Any]) -> None:
                     now = datetime.now(timezone.utc)
                     next_at = advance_window(window_type, config, now)
@@ -208,6 +220,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                         "response_summary": result["response"],
                     }
                     state[f"{window_type}_calibration_needed"] = None
+
                 update_state(paths, update_window)
 
             return "dry_run" if args.dry_run else "success", result
@@ -231,6 +244,8 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             raise
     if command == "usage":
         return "success", query_usage(paths, load_config(paths, create=True))
+    if command == "anchor":
+        return "success", run_anchor(paths, load_config(paths, create=True))
     if command == "calibrate":
         config = load_config(paths, create=True)
         window_type = args.window_type
@@ -239,10 +254,12 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         # Validate anchor is valid ISO datetime (accept both Z and +00:00 UTC suffixes)
         try:
             _parse_iso(anchor_iso)
-        except ValueError:
-            raise AppError(ErrorCode.CONFIG_INVALID, f"Invalid ISO datetime: {anchor_iso}")
+        except ValueError as exc:
+            raise AppError(ErrorCode.CONFIG_INVALID, f"Invalid ISO datetime: {anchor_iso}") from exc
 
         # Update config
+        if window_type == "five_hour":
+            config["windows"]["five_hour"]["mode"] = "manual"
         config["windows"][window_type]["anchor_iso"] = anchor_iso
         save_config(paths, config)
 
@@ -252,6 +269,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
             next_at = advance_window(window_type, config, now)
             state[f"{window_type}_next_run_at"] = next_at.isoformat()
             state[f"{window_type}_calibration_needed"] = None
+
         update_state(paths, update_calibration)
 
         next_window = next_runs(paths, config).get(window_type)
@@ -259,10 +277,15 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         config_for_tz = load_config(paths, create=True)
         tz_name = config_for_tz.get("timezone", "UTC")
         from .telegram_bot import _fmt_dt as _tg_fmt
+
         window_label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
         next_display = _tg_fmt(next_window, tz_name) if next_window else "hesaplanamadı"
         notify(paths, f"⚙️ {window_label} pencere kalibre edildi.\nSonraki çalışma: {next_display}")
-        return "success", {"window_type": window_type, "anchor_iso": anchor_iso, "next_run_at": next_iso}
+        return "success", {
+            "window_type": window_type,
+            "anchor_iso": anchor_iso,
+            "next_run_at": next_iso,
+        }
     if command == "config":
         if args.config_action in {"init", "get"}:
             return "success", load_config(paths, create=True)
@@ -289,9 +312,15 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         return "success", updated
     if command == "schedule":
         config = load_config(paths, create=True)
+        if args.tick:
+            result = tick_schedule(paths, config)
+            _notify_schedule_event(paths, config, result)
+            return str(result.get("event", "success")), result
         if args.network_state == "offline":
+
             def _mark_offline(state: dict[str, Any]) -> None:
                 state["network_went_offline_at"] = datetime.now(timezone.utc).isoformat()
+
             update_state(paths, _mark_offline)
             return "connectivity_recorded", {"online": False}
         if args.network_state == "online":
@@ -316,27 +345,38 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                                 pass
                 except (ValueError, KeyError):
                     pass
+
             def _clear_offline(state: dict[str, Any]) -> None:
                 state.pop("network_went_offline_at", None)
                 for wtype in missed:
                     state[f"{wtype}_calibration_needed"] = True
+
             update_state(paths, _clear_offline)
             if missed:
                 window_names = {"five_hour": "5 saatlik", "weekly": "haftalık"}
                 missed_str = ", ".join(window_names.get(w, w) for w in missed)
-                msg = f"🔌 İnternet bağlantısı yeniden kuruldu.\n\nÇevrimdışıyken kaçırılan pencereler: *{missed_str}*\n\nLütfen Mac uygulamasından veya bot üzerinden kalibre edin."
+                msg = (
+                    "🔌 İnternet bağlantısı yeniden kuruldu.\n\n"
+                    f"Çevrimdışıyken kaçırılan pencereler: *{missed_str}*\n\n"
+                    "Lütfen Mac uygulamasından veya bot üzerinden kalibre edin."
+                )
                 try:
                     notify(paths, msg)
-                except Exception:
-                    pass
+                except AppError as exc:
+                    log_event(
+                        paths,
+                        {
+                            "status": "connectivity_notification_failed",
+                            "error_code": exc.code.value,
+                        },
+                    )
                 send_mac_notification("Claude Window Starter", msg)
             return "connectivity_recorded", {"online": True, "missed_windows": missed}
-        # Return next scheduled window runs
+        result = schedule_snapshot(paths, config)
         next_window_runs = next_runs(paths, config)
-        return "success", {
-            "next_runs": {k: v.isoformat() if v else None for k, v in next_window_runs.items()},
-            "launchd_plist": None,
-        }
+        result["next_runs"] = {k: v.isoformat() if v else None for k, v in next_window_runs.items()}
+        result["launchd_plist"] = None
+        return "success", result
     if command == "telegram-bot":
         token = _read_token_stdin() if args.token_stdin else ""
         TelegramBot(paths, token=token, supervisor_pid=args.supervisor_pid).run_forever()
@@ -416,12 +456,14 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         if action == "remove":
             if args.user_id is not None:
                 config["telegram"]["allowed_user_ids"] = [
-                    uid for uid in config["telegram"].get("allowed_user_ids", [])
+                    uid
+                    for uid in config["telegram"].get("allowed_user_ids", [])
                     if uid != args.user_id
                 ]
             if args.chat_id is not None:
                 config["telegram"]["allowed_chat_ids"] = [
-                    cid for cid in config["telegram"].get("allowed_chat_ids", [])
+                    cid
+                    for cid in config["telegram"].get("allowed_chat_ids", [])
                     if cid != args.chat_id
                 ]
             save_config(paths, config)
@@ -481,9 +523,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         result = envelope(False, "error", error=AppError(ErrorCode.CONFIG_INVALID, str(exc)))
         print(
-            json.dumps(result, ensure_ascii=False, indent=2)
-            if json_output
-            else str(exc),
+            json.dumps(result, ensure_ascii=False, indent=2) if json_output else str(exc),
             file=sys.stderr,
         )
         return 1
@@ -506,6 +546,47 @@ def _deep_patch(target: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]
             else value
         )
     return result
+
+
+def _notify_schedule_event(paths: AppPaths, config: dict[str, Any], result: dict[str, Any]) -> None:
+    event = str(result.get("event", ""))
+    messages = {
+        "anchor_succeeded": "✅ Adaptif 5 saatlik kota penceresi Haiku ile başlatıldı.",
+        "manual_window_detected": (
+            "ℹ️ Manuel Claude kullanımıyla açılmış aktif pencere algılandı; "
+            "plan gerçek resete göre güncellendi."
+        ),
+        "weekly_exhausted": "⛔ Haftalık kota dolu; otomatik anchor işlemleri durduruldu.",
+        "anchor_failed": (
+            "⚠️ Adaptif anchor kalıcı olarak başarısız oldu; bu eylem yeniden denenmeyecek."
+        ),
+    }
+    message = messages.get(event)
+    telegram = config.get("telegram", {})
+    if not message or not telegram.get("enabled"):
+        return
+    actions = result.get("today_actions", [])
+    completed = [
+        action
+        for action in actions
+        if isinstance(action, dict) and action.get("status") != "planned"
+    ]
+    action_id = completed[-1].get("id") if completed else result.get("next_action_at")
+    dedup_key = f"{event}:{action_id}"
+    state = load_state(paths)
+    if dedup_key in state.get("notification_dedup", {}):
+        return
+    try:
+        notify(paths, message)
+    except AppError:
+        return
+
+    def mark(current: dict[str, Any]) -> None:
+        current.setdefault("notification_dedup", {})[dedup_key] = datetime.now(
+            timezone.utc
+        ).isoformat()
+
+    update_state(paths, mark)
 
 
 def _find_pairing(updates: list[dict[str, Any]], code: str) -> tuple[int, int, int]:

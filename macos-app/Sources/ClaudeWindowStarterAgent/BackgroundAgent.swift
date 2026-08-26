@@ -7,7 +7,6 @@ actor BackgroundAgent {
     private let mode: String
     private let base: URL
     private let configURL: URL
-    private let stateURL: URL
     private let statusURL: URL
     private let command: [String]
     private var monitor: NWPathMonitor?
@@ -24,7 +23,6 @@ actor BackgroundAgent {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         self.base = appSupport.appending(path: "ClaudeWindowStarter")
         self.configURL = self.base.appending(path: "shared/config/config.json")
-        self.stateURL = self.base.appending(path: "shared/state/state.json")
         self.statusURL = self.base.appending(path: "shared/runtime/background.json")
     }
 
@@ -34,6 +32,10 @@ actor BackgroundAgent {
             "telegram-bot", "--token-stdin", "--supervisor-pid",
             String(supervisorPID),
         ]
+    }
+
+    static func schedulerTickArguments(basePath: String) -> [String] {
+        ["-m", "claude_starter", "--home", basePath, "--json", "schedule", "--tick"]
     }
 
     func run() async {
@@ -85,10 +87,7 @@ actor BackgroundAgent {
             }
             writeStatus(enabled: enabled, automationEnabled: automationEnabled)
             if automationEnabled && online && !processRunning {
-                let windowType = windowsDue(config: config)
-                if !windowType.isEmpty {
-                    await runAutomatic(windowType: windowType)
-                }
+                await runSchedulerTick()
             } else if automationEnabled && !online &&
                         Date().timeIntervalSince(lastOfflineSignal) >= 30 {
                 lastOfflineSignal = Date()
@@ -100,7 +99,7 @@ actor BackgroundAgent {
         releaseAssertion()
     }
 
-    private func runAutomatic(windowType: String) async {
+    private func runSchedulerTick() async {
         processRunning = true
         acquireRunAssertion()
         defer {
@@ -111,7 +110,7 @@ actor BackgroundAgent {
         guard FileManager.default.isExecutableFile(atPath: python.path) else { return }
         let process = Process()
         process.executableURL = python
-        process.arguments = ["-m", "claude_starter", "--home", base.path, "--json", "run", "--window-type", windowType, "--trigger", "background"]
+        process.arguments = Self.schedulerTickArguments(basePath: base.path)
         process.environment = agentEnvironment()
         process.currentDirectoryURL = base.appending(path: "shared/runtime")
         process.standardInput = FileHandle.nullDevice
@@ -163,55 +162,6 @@ actor BackgroundAgent {
               let object = try? JSONSerialization.jsonObject(with: data),
               let config = object as? [String: Any] else { return [:] }
         return config
-    }
-
-    private func readState() -> [String: Any] {
-        guard let data = try? Data(contentsOf: stateURL),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let state = object as? [String: Any] else { return [:] }
-        return state
-    }
-
-    private func parseISO8601(_ value: Any?) -> Date? {
-        guard let text = value as? String else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let parsed = formatter.date(from: text) {
-            return parsed
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: text)
-    }
-
-    private func windowsDue(config: [String: Any]) -> String {
-        let state = readState()
-        var duWindow = ""
-
-        // Check five_hour window
-        if let windows = config["windows"] as? [String: Any],
-           let fiveHour = windows["five_hour"] as? [String: Any],
-           let enabled = fiveHour["enabled"] as? Bool,
-           enabled {
-            if let nextRun = parseISO8601(state["five_hour_next_run_at"]) {
-                if Date() >= nextRun {
-                    duWindow = "five_hour"
-                }
-            }
-        }
-
-        // Check weekly window (takes precedence, but both will be marked triggered on success)
-        if let windows = config["windows"] as? [String: Any],
-           let weekly = windows["weekly"] as? [String: Any],
-           let enabled = weekly["enabled"] as? Bool,
-           enabled {
-            if let nextRun = parseISO8601(state["weekly_next_run_at"]) {
-                if Date() >= nextRun {
-                    duWindow = "weekly"
-                }
-            }
-        }
-
-        return duWindow
     }
 
     private func networkPathChanged(_ value: Bool) async {

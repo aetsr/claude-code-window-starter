@@ -61,9 +61,7 @@ class TelegramAPI:
                 },
             ) from exc
         except urllib.error.URLError as exc:
-            raise AppError(
-                ErrorCode.TELEGRAM_API_ERROR, "Telegram network request failed"
-            ) from exc
+            raise AppError(ErrorCode.TELEGRAM_API_ERROR, "Telegram network request failed") from exc
         try:
             result = json.loads(body)
         except json.JSONDecodeError as exc:

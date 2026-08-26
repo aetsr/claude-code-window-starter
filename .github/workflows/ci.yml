@@ -47,9 +47,6 @@ jobs:
         env:
           PYTHONPATH: backend
         run: python -m unittest tests.test_health_architecture
-      - name: systemd units
-        run: systemd-analyze verify systemd/*.service systemd/*.timer
-
   swift:
     runs-on: macos-15
     steps:

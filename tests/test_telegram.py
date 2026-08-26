@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from claude_starter.config import DEFAULT_CONFIG, save_config
+from claude_starter.config import DEFAULT_CONFIG, load_config, save_config
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
 from claude_starter.state import load_state
@@ -37,9 +37,7 @@ class FakeAPI:
     ) -> None:
         self.events.append("message")
         self.messages.append((chat_id, text, reply_markup))
-        self.message_options.append(
-            {"parse_mode": parse_mode, "auto_parse_mode": auto_parse_mode}
-        )
+        self.message_options.append({"parse_mode": parse_mode, "auto_parse_mode": auto_parse_mode})
 
     def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
         self.events.append("typing")
@@ -140,9 +138,7 @@ class TelegramTests(unittest.TestCase):
             "claude_starter.telegram_bot.query_usage",
             return_value={
                 "formatted_text": (
-                    "📊 Claude Kullanım Bilgisi\n"
-                    "• Current session [all] 40% used\n"
-                    "• Resets in 2h"
+                    "📊 Claude Kullanım Bilgisi\n• Current session [all] 40% used\n• Resets in 2h"
                 )
             },
         ):
@@ -159,6 +155,50 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(self.api.actions, [(100, "typing")])
         self.assertEqual(self.api.events, ["typing", "message"])
         self.assertFalse(self.api.message_options[-1]["auto_parse_mode"])
+
+    def test_workhours_enables_adaptive_plan(self) -> None:
+        self.bot.handle_update(
+            {
+                "message": {
+                    "from": {"id": 100},
+                    "chat": {"id": 100, "type": "private"},
+                    "text": "/workhours 09:00 18:00",
+                }
+            }
+        )
+        config = load_config(self.paths)
+        self.assertEqual(config["windows"]["five_hour"]["mode"], "adaptive")
+        self.assertEqual(config["windows"]["five_hour"]["busy_start_local"], "09:00")
+        self.assertIn("Hafta içi / Maksimum kota", self.api.messages[-1][1])
+
+    def test_workhours_rejects_overnight_period(self) -> None:
+        self.bot.handle_update(
+            {
+                "message": {
+                    "from": {"id": 100},
+                    "chat": {"id": 100, "type": "private"},
+                    "text": "/workhours 22:00 06:00",
+                }
+            }
+        )
+        self.assertIn("gece yarısını geçen", self.api.messages[-1][1])
+
+    def test_sync_usage_returns_plan_confidence(self) -> None:
+        with mock.patch(
+            "claude_starter.telegram_bot.query_usage",
+            return_value={"formatted_text": "Kullanım senkronize edildi."},
+        ):
+            self.bot.handle_update(
+                {
+                    "message": {
+                        "from": {"id": 100},
+                        "chat": {"id": 100, "type": "private"},
+                        "text": "/sync_usage",
+                    }
+                }
+            )
+        self.assertIn("Plan güveni", self.api.messages[-1][1])
+        self.assertEqual(self.api.actions, [(100, "typing")])
 
     def test_usage_errors_are_short_turkish_plain_text(self) -> None:
         errors = (

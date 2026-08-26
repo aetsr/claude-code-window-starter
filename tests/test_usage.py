@@ -13,6 +13,7 @@ from claude_starter import usage
 from claude_starter.config import DEFAULT_CONFIG
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
+from claude_starter.state import load_state
 from claude_starter.usage import (
     build_usage_argv,
     extract_usage_text,
@@ -25,10 +26,7 @@ from claude_starter.usage import (
     trust_prompt_is_for_workspace,
 )
 
-SAFE_HELP = (
-    "--no-chrome --permission-mode dontAsk --tools "
-    "--mcp-config --strict-mcp-config"
-)
+SAFE_HELP = "--no-chrome --permission-mode dontAsk --tools --mcp-config --strict-mcp-config"
 SUCCESS_TRANSCRIPT = """
 \x1b]0;Claude Code\x07\x1b[?25l
 ╭─ Claude Code ─────────────────────────╮
@@ -169,8 +167,7 @@ class UsageTests(unittest.TestCase):
 
     def test_format_usage_message_is_plain_text(self) -> None:
         message = format_usage_message(
-            "Current session\n40% used\nResets in 2h\n"
-            "Current week\n82% used\nResets Monday"
+            "Current session\n40% used\nResets in 2h\nCurrent week\n82% used\nResets Monday"
         )
         self.assertIn("Claude Kullanım Bilgisi", message)
         self.assertIn("• 40% used", message)
@@ -349,6 +346,12 @@ class UsageTests(unittest.TestCase):
         )
         self.assertIn("Current session", result["usage_text"])
         self.assertNotIn("*", result["formatted_text"])
+        self.assertEqual(result["source"], "claude_code_usage")
+        self.assertEqual(result["limits"]["five_hour"]["used_percentage"], 40.0)
+        self.assertEqual(
+            load_state(self.paths)["usage_observation"]["captured_at"],
+            result["captured_at"],
+        )
 
     def test_query_usage_rejects_busy_claude_run(self) -> None:
         capabilities = mock.Mock(

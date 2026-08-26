@@ -12,16 +12,18 @@ import struct
 import termios
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .claude import _authentication_error, _clean_environment, discover_claude
 from .errors import AppError, ErrorCode
 from .locks import FileLock
 from .logging_utils import sanitize_text
 from .paths import AppPaths
+from .state import update_state
 
 _ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _ANSI_CURSOR_RE = re.compile(r"\x1b\[[0-9;?]*(?:A|B|E|F|G|H|J|K|f)")
@@ -203,11 +205,168 @@ def query_usage(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
             "Claude Code kullanım bilgisi doğrulanamadı.",
         )
-    return {
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+    captured_at = datetime.now(timezone.utc)
+    limits = parse_usage_limits(
+        usage_text,
+        now=captured_at,
+        timezone_name=str(config.get("timezone", "UTC")),
+    )
+    result = {
+        "captured_at": captured_at.isoformat(),
+        "source": "claude_code_usage",
+        "freshness_seconds": 0,
+        "fresh": True,
         "usage_text": usage_text,
         "formatted_text": format_usage_message(usage_text),
+        "limits": limits,
     }
+    update_state(paths, lambda state: state.__setitem__("usage_observation", result))
+    return result
+
+
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+
+def parse_usage_limits(
+    text: str,
+    *,
+    now: datetime | None = None,
+    timezone_name: str = "UTC",
+) -> dict[str, dict[str, Any] | None]:
+    """Parse the public ``/usage`` presentation without reading private settings.
+
+    Claude Code has changed the exact presentation over time, so this parser
+    deliberately keys off semantic quota labels, percentages, and reset phrases.
+    Missing fields stay ``None`` instead of being guessed.
+    """
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    local_tz = ZoneInfo(timezone_name)
+    lines = [_clean_display_line(line) for line in cleaned_lines(text)]
+    result: dict[str, dict[str, Any] | None] = {"five_hour": None, "weekly": None}
+    current: str | None = None
+    buffers: dict[str, list[str]] = {"five_hour": [], "weekly": []}
+    for line in lines:
+        lowered = line.casefold()
+        label: str | None = None
+        if re.search(r"\b(?:current\s+)?session\b|\b5\s*(?:h|hour)|five[- ]hour", lowered):
+            label = "five_hour"
+        elif re.search(r"\bweek(?:ly)?\b|\ball models\b|\bsonnet only\b", lowered):
+            label = "weekly"
+        if label:
+            current = label
+        if current and line:
+            buffers[current].append(line)
+
+    for quota, block_lines in buffers.items():
+        if not block_lines:
+            continue
+        block = " ".join(block_lines[:8])
+        percent_match = _PERCENT_RE.search(block)
+        reset_match = re.search(
+            r"(?:reset(?:s|ting)?|renew(?:s|al)?|refresh(?:es)?)\s*"
+            r"(?:at|in|on)?\s*(.+?)(?=(?:\b(?:current\s+)?session\b|\bweek(?:ly)?\b|"
+            r"\ball models\b|\bsonnet only\b)\s*:?|$)",
+            block,
+            re.IGNORECASE,
+        )
+        used = float(percent_match.group(0).replace("%", "").strip()) if percent_match else None
+        resets = (
+            _parse_reset_datetime(reset_match.group(1), reference, local_tz)
+            if reset_match
+            else None
+        )
+        result[quota] = {
+            "used_percentage": used,
+            "resets_at": resets.isoformat() if resets else None,
+        }
+    return result
+
+
+def _parse_reset_datetime(value: str, now: datetime, local_tz: ZoneInfo) -> datetime | None:
+    cleaned = re.sub(r"[•│]", " ", value).strip(" .,-")
+    lowered = cleaned.casefold()
+    relative_parts = re.findall(r"(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m)\b", lowered)
+    if relative_parts:
+        days = sum(int(amount) for amount, unit in relative_parts if unit.startswith("d"))
+        hours = sum(int(amount) for amount, unit in relative_parts if unit.startswith("h"))
+        minutes = sum(int(amount) for amount, unit in relative_parts if unit.startswith("m"))
+        return (now + timedelta(days=days, hours=hours, minutes=minutes)).astimezone(timezone.utc)
+
+    local_now = now.astimezone(local_tz)
+    date_value = local_now.date()
+    if "tomorrow" in lowered:
+        date_value += timedelta(days=1)
+    month_match = re.search(
+        r"\b(" + "|".join(_MONTHS) + r")\s+(\d{1,2})(?:,?\s+(\d{4}))?",
+        lowered,
+    )
+    if month_match:
+        month = _MONTHS[month_match.group(1)]
+        day = int(month_match.group(2))
+        year = int(month_match.group(3) or local_now.year)
+        try:
+            date_value = local_now.date().replace(year=year, month=month, day=day)
+        except ValueError:
+            return None
+        if month_match.group(3) is None and date_value < local_now.date():
+            date_value = date_value.replace(year=year + 1)
+    iso_match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", lowered)
+    if iso_match:
+        try:
+            date_value = local_now.date().replace(
+                year=int(iso_match.group(1)),
+                month=int(iso_match.group(2)),
+                day=int(iso_match.group(3)),
+            )
+        except ValueError:
+            return None
+
+    time_match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", lowered)
+    if time_match:
+        hour = int(time_match.group(1)) % 12
+        if time_match.group(3) == "pm":
+            hour += 12
+        minute = int(time_match.group(2) or 0)
+    else:
+        time_match = re.search(r"\b(?:at\s*)?(\d{1,2}):(\d{2})\b", lowered)
+        if not time_match:
+            return None
+        hour, minute = int(time_match.group(1)), int(time_match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    candidate = datetime.combine(date_value, datetime.min.time(), tzinfo=local_tz).replace(
+        hour=hour, minute=minute
+    )
+    if not month_match and not iso_match and "tomorrow" not in lowered and candidate <= local_now:
+        candidate += timedelta(days=1)
+    return candidate.astimezone(timezone.utc)
 
 
 def prepare_usage_workspace(paths: AppPaths) -> Path:
@@ -248,9 +407,8 @@ def prepare_usage_workspace(paths: AppPaths) -> Path:
 
     base = paths.base.resolve(strict=True)
     resolved = workspace.resolve(strict=True)
-    if (
-        resolved.parent != paths.runtime_dir.resolve(strict=True)
-        or not resolved.is_relative_to(base)
+    if resolved.parent != paths.runtime_dir.resolve(strict=True) or not resolved.is_relative_to(
+        base
     ):
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
@@ -384,9 +542,7 @@ def run_usage_session(
                                 min(0.1, max(0.0, exit_deadline - time.monotonic()))
                             )
                             if closing_chunk:
-                                transcript = (
-                                    transcript + closing_chunk
-                                )[-_MAX_TRANSCRIPT_BYTES:]
+                                transcript = (transcript + closing_chunk)[-_MAX_TRANSCRIPT_BYTES:]
                             if process.poll() is not None:
                                 break
                         return transcript
@@ -517,9 +673,7 @@ def _validated_usage_block(lines: list[str]) -> bool:
     if any(value in combined.lower() for value in _PROHIBITED_USAGE_CHROME):
         return False
     return bool(
-        _QUOTA_RE.search(combined)
-        and _PERCENT_RE.search(combined)
-        and _RESET_RE.search(combined)
+        _QUOTA_RE.search(combined) and _PERCENT_RE.search(combined) and _RESET_RE.search(combined)
     )
 
 

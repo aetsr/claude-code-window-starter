@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Build the Swift app AND sync the Python backend to the active release,
-# then install directly to /Applications. No intermediate dist/ step.
+# Build the Swift app. With an output-directory argument, create a standalone
+# bundle there for CI/verification. Without one, install the development build
+# and sync the active local backend.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_DEST="${CLAUDE_STARTER_APP_PATH:-/Applications/Claude Window Starter.app}"
+ARTIFACT_MODE=false
+if [[ $# -gt 0 ]]; then
+  ARTIFACT_MODE=true
+  APP_DEST="$1/Claude Window Starter.app"
+else
+  APP_DEST="${CLAUDE_STARTER_APP_PATH:-/Applications/Claude Window Starter.app}"
+fi
 CONTENTS="$APP_DEST/Contents"
 BASE="$HOME/Library/Application Support/ClaudeWindowStarter"
 
@@ -36,7 +43,7 @@ codesign --force --deep --sign - "$APP_DEST"
 codesign --verify --deep --strict "$APP_DEST"
 
 # ── 3. Sync Python backend to active release (dev workflow) ──────────────────
-if [[ -L "$BASE/current" ]]; then
+if [[ "$ARTIFACT_MODE" == false && -L "$BASE/current" ]]; then
   RELEASE="$(readlink "$BASE/current")"
   DEST_PY="$RELEASE/backend/claude_starter"
   if [[ -d "$DEST_PY" ]]; then
@@ -46,5 +53,7 @@ if [[ -L "$BASE/current" ]]; then
 fi
 
 # ── 4. Launch ─────────────────────────────────────────────────────────────────
-open "$APP_DEST"
+if [[ "$ARTIFACT_MODE" == false ]]; then
+  open "$APP_DEST"
+fi
 echo "Done: $APP_DEST"

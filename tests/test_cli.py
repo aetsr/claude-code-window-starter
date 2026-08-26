@@ -15,14 +15,14 @@ from claude_starter.state import load_state
 
 
 class CLITests(unittest.TestCase):
-    def test_version_uses_v3_json_envelope(self) -> None:
+    def test_version_uses_v4_json_envelope(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = io.StringIO()
             with redirect_stdout(output):
                 code = main(["--home", directory, "--json", "version"])
             value = json.loads(output.getvalue())
             self.assertEqual(code, 0)
-            self.assertEqual(value["schema_version"], 3)
+            self.assertEqual(value["schema_version"], 4)
             self.assertTrue(value["ok"])
 
     def test_config_patch_stdin_rejects_unknown_fields(self) -> None:
@@ -38,7 +38,17 @@ class CLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = io.StringIO()
             with redirect_stdout(output):
-                code = main(["--home", directory, "--json", "run", "--window-type", "five_hour", "--dry-run"])
+                code = main(
+                    [
+                        "--home",
+                        directory,
+                        "--json",
+                        "run",
+                        "--window-type",
+                        "five_hour",
+                        "--dry-run",
+                    ]
+                )
             value = json.loads(output.getvalue())
             self.assertEqual(code, 0)
             self.assertEqual(value["status"], "dry_run")

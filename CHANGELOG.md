@@ -5,6 +5,25 @@ All notable changes to Claude Window Starter are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-08-26
+
+### Added
+- Adaptive weekday busy-hours planner with default `08:00–17:00` maximum-quota strategy
+- Structured five-hour/weekly `/usage` parsing with source, capture time, and freshness state
+- Locked, idempotent `schedule --tick` evaluation and fixed tool-free Haiku `anchor` path
+- macOS busy-time controls, daily preview, observed reset/source display, sync, and manual override
+- Telegram `/workhours`, `/sync_usage`, and enriched `/schedule` commands
+- Deduplicated anchor, manual-window, weekly-limit, and persistent-failure notifications
+
+### Changed
+- Config/state and CLI envelope schemas are v4; v3 installs migrate to manual mode without enabling automation
+- Swift background helper delegates all time and quota decisions to the Python scheduler
+- Offline/wake behavior expires stale anchors instead of replaying missed work
+- Version advanced to 2.1.0 across Python, wheel scripts, and the macOS bundle
+
+### Removed
+- Obsolete Linux systemd verification from the macOS-only CI workflow
+
 ## [2.0.0] — 2026-07-26
 
 ### Added

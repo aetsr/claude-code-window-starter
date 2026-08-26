@@ -9,28 +9,31 @@ Tests every combination a user can perform via UI or Telegram:
   - config patch-stdin does not overwrite anchor_iso when windows section omits it
   - Z-suffix ISO strings from Swift accepted everywhere
 """
+
 from __future__ import annotations
 
+import copy
 import io
 import json
-import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from claude_starter.cli import main
+from claude_starter.cli import build_parser, execute, main
 from claude_starter.config import DEFAULT_CONFIG, save_config
 from claude_starter.paths import AppPaths
 from claude_starter.state import load_state, update_state
+from claude_starter.telegram_api import TelegramAPI
+from claude_starter.telegram_bot import TelegramBot
 from claude_starter.windows import _parse_iso
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _paths(tmp: str) -> AppPaths:
     p = AppPaths(Path(tmp))
@@ -40,7 +43,9 @@ def _paths(tmp: str) -> AppPaths:
 
 def _run(*args) -> tuple[int, dict]:
     buf = io.StringIO()
-    code = main(list(args), _out=buf) if "_out" in main.__code__.co_varnames else _run_capture(*args)
+    code = (
+        main(list(args), _out=buf) if "_out" in main.__code__.co_varnames else _run_capture(*args)
+    )
     return code, {}
 
 
@@ -88,16 +93,25 @@ def _cfg(tmp: str, **overrides) -> AppPaths:
 # 1. Calibration flow
 # ===========================================================================
 
+
 class TestCalibrationFlow(unittest.TestCase):
     """Calibrate → status → patch → anchor must survive."""
 
     def test_calibrate_five_hour_z_suffix(self):
         """Swift sends Z-suffix; calibrate must accept it."""
         with tempfile.TemporaryDirectory() as tmp:
-            paths = _cfg(tmp)
+            _cfg(tmp)
             anchor = "2026-07-25T18:43:00Z"
-            rc, env = _run_capture("--home", tmp, "--json", "calibrate",
-                                   "--window-type", "five_hour", "--anchor", anchor)
+            rc, env = _run_capture(
+                "--home",
+                tmp,
+                "--json",
+                "calibrate",
+                "--window-type",
+                "five_hour",
+                "--anchor",
+                anchor,
+            )
             self.assertEqual(rc, 0)
             self.assertTrue(env["ok"])
             self.assertEqual(env["data"]["window_type"], "five_hour")
@@ -107,10 +121,11 @@ class TestCalibrationFlow(unittest.TestCase):
 
     def test_calibrate_weekly_full_datetime(self):
         with tempfile.TemporaryDirectory() as tmp:
-            paths = _cfg(tmp)
+            _cfg(tmp)
             anchor = "2026-07-20T10:00:00+00:00"
-            rc, env = _run_capture("--home", tmp, "--json", "calibrate",
-                                   "--window-type", "weekly", "--anchor", anchor)
+            rc, env = _run_capture(
+                "--home", tmp, "--json", "calibrate", "--window-type", "weekly", "--anchor", anchor
+            )
             self.assertEqual(rc, 0)
             self.assertTrue(env["ok"])
 
@@ -122,8 +137,16 @@ class TestCalibrationFlow(unittest.TestCase):
             update_state(paths, lambda s: s.update({"five_hour_calibration_needed": True}))
             anchor = "2026-07-25T10:00:00Z"
             with mock.patch("claude_starter.cli.notify"):
-                rc, env = _run_capture("--home", tmp, "--json", "calibrate",
-                                       "--window-type", "five_hour", "--anchor", anchor)
+                rc, env = _run_capture(
+                    "--home",
+                    tmp,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    anchor,
+                )
             self.assertEqual(rc, 0)
             state = load_state(paths)
             self.assertIsNone(state.get("five_hour_calibration_needed"))
@@ -134,22 +157,33 @@ class TestCalibrationFlow(unittest.TestCase):
             paths = _cfg(tmp)
             # First calibrate to set anchor
             with mock.patch("claude_starter.cli.notify"):
-                _run_capture("--home", tmp, "--json", "calibrate",
-                             "--window-type", "five_hour", "--anchor", "2026-07-25T10:00:00Z")
+                _run_capture(
+                    "--home",
+                    tmp,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    "2026-07-25T10:00:00Z",
+                )
             # Now send a patch that only touches enabled (simulates UI sleep-mode toggle)
-            patch = json.dumps({
-                "enabled": True,
-                "background_enabled": True,
-                "windows": {
-                    "five_hour": {"enabled": True},
-                    "weekly": {"enabled": False},
-                },
-            }).encode()
+            patch = json.dumps(
+                {
+                    "enabled": True,
+                    "background_enabled": True,
+                    "windows": {
+                        "five_hour": {"enabled": True},
+                        "weekly": {"enabled": False},
+                    },
+                }
+            ).encode()
             stdin_mock = io.BytesIO(patch)
             with mock.patch("sys.stdin", io.TextIOWrapper(stdin_mock)):
                 rc, env = _run_capture("--home", tmp, "--json", "config", "patch-stdin")
             self.assertEqual(rc, 0)
             from claude_starter.config import load_config
+
             cfg = load_config(paths)
             # anchor_iso must NOT have been wiped
             anchor = cfg["windows"]["five_hour"]["anchor_iso"]
@@ -160,11 +194,19 @@ class TestCalibrationFlow(unittest.TestCase):
     def test_status_returns_anchor_after_calibration(self):
         """Status response includes anchor_iso after calibrate."""
         with tempfile.TemporaryDirectory() as tmp:
-            paths = _cfg(tmp)
+            _cfg(tmp)
             anchor = "2026-07-25T18:00:00Z"
             with mock.patch("claude_starter.cli.notify"):
-                _run_capture("--home", tmp, "--json", "calibrate",
-                             "--window-type", "five_hour", "--anchor", anchor)
+                _run_capture(
+                    "--home",
+                    tmp,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    anchor,
+                )
             rc, env = _run_capture("--home", tmp, "--json", "status")
             self.assertEqual(rc, 0)
             five_hour = env["data"]["windows"]["five_hour"]
@@ -185,22 +227,31 @@ class TestCalibrationFlow(unittest.TestCase):
 # 2. Connectivity offline/online flow
 # ===========================================================================
 
-class TestConnectivityFlow(unittest.TestCase):
 
+class TestConnectivityFlow(unittest.TestCase):
     def _setup_with_overdue_window(self, tmp: str) -> AppPaths:
         paths = _cfg(tmp)
         # Set next_run_at in the past (missed while offline)
         past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-        update_state(paths, lambda s: s.update({
-            "five_hour_next_run_at": past,
-            "network_went_offline_at": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
-        }))
+        update_state(
+            paths,
+            lambda s: s.update(
+                {
+                    "five_hour_next_run_at": past,
+                    "network_went_offline_at": (
+                        datetime.now(timezone.utc) - timedelta(hours=3)
+                    ).isoformat(),
+                }
+            ),
+        )
         return paths
 
     def test_offline_records_timestamp(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = _cfg(tmp)
-            rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "offline")
+            rc, env = _run_capture(
+                "--home", tmp, "--json", "schedule", "--network-state", "offline"
+            )
             self.assertEqual(rc, 0)
             state = load_state(paths)
             self.assertIn("network_went_offline_at", state)
@@ -208,9 +259,13 @@ class TestConnectivityFlow(unittest.TestCase):
     def test_online_after_missed_window_marks_calibration_needed(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._setup_with_overdue_window(tmp)
-            with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli.send_mac_notification"):
-                rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
+            with (
+                mock.patch("claude_starter.cli.notify"),
+                mock.patch("claude_starter.cli.send_mac_notification"),
+            ):
+                rc, env = _run_capture(
+                    "--home", tmp, "--json", "schedule", "--network-state", "online"
+                )
             self.assertEqual(rc, 0)
             self.assertIn("five_hour", env["data"]["missed_windows"])
             state = load_state(paths)
@@ -224,13 +279,24 @@ class TestConnectivityFlow(unittest.TestCase):
             paths = _cfg(tmp)
             # Set next_run in the future
             future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
-            update_state(paths, lambda s: s.update({
-                "five_hour_next_run_at": future,
-                "network_went_offline_at": (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
-            }))
-            with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli.send_mac_notification"):
-                rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
+            update_state(
+                paths,
+                lambda s: s.update(
+                    {
+                        "five_hour_next_run_at": future,
+                        "network_went_offline_at": (
+                            datetime.now(timezone.utc) - timedelta(minutes=30)
+                        ).isoformat(),
+                    }
+                ),
+            )
+            with (
+                mock.patch("claude_starter.cli.notify"),
+                mock.patch("claude_starter.cli.send_mac_notification"),
+            ):
+                rc, env = _run_capture(
+                    "--home", tmp, "--json", "schedule", "--network-state", "online"
+                )
             self.assertEqual(rc, 0)
             self.assertEqual(env["data"]["missed_windows"], [])
             state = load_state(paths)
@@ -239,19 +305,27 @@ class TestConnectivityFlow(unittest.TestCase):
     def test_online_without_prior_offline_no_error(self):
         """Online signal with no prior offline recorded should work cleanly."""
         with tempfile.TemporaryDirectory() as tmp:
-            paths = _cfg(tmp)
-            with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli.send_mac_notification"):
-                rc, env = _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
+            _cfg(tmp)
+            with (
+                mock.patch("claude_starter.cli.notify"),
+                mock.patch("claude_starter.cli.send_mac_notification"),
+            ):
+                rc, env = _run_capture(
+                    "--home", tmp, "--json", "schedule", "--network-state", "online"
+                )
             self.assertEqual(rc, 0)
             self.assertEqual(env["data"]["missed_windows"], [])
 
     def test_missed_window_sends_telegram_notification(self):
         with tempfile.TemporaryDirectory() as tmp:
-            paths = self._setup_with_overdue_window(tmp)
+            self._setup_with_overdue_window(tmp)
             notify_calls = []
-            with mock.patch("claude_starter.cli.notify", side_effect=lambda p, m: notify_calls.append(m)), \
-                 mock.patch("claude_starter.cli.send_mac_notification"):
+            with (
+                mock.patch(
+                    "claude_starter.cli.notify", side_effect=lambda p, m: notify_calls.append(m)
+                ),
+                mock.patch("claude_starter.cli.send_mac_notification"),
+            ):
                 _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             self.assertEqual(len(notify_calls), 1)
             self.assertIn("5 saatlik", notify_calls[0])
@@ -260,14 +334,24 @@ class TestConnectivityFlow(unittest.TestCase):
         """After offline-missed marking, recalibrate → calibration_needed cleared."""
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._setup_with_overdue_window(tmp)
-            with mock.patch("claude_starter.cli.notify"), \
-                 mock.patch("claude_starter.cli.send_mac_notification"):
+            with (
+                mock.patch("claude_starter.cli.notify"),
+                mock.patch("claude_starter.cli.send_mac_notification"),
+            ):
                 _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             # Now recalibrate
             anchor = datetime.now(timezone.utc).isoformat()
             with mock.patch("claude_starter.cli.notify"):
-                rc, env = _run_capture("--home", tmp, "--json", "calibrate",
-                                       "--window-type", "five_hour", "--anchor", anchor)
+                rc, env = _run_capture(
+                    "--home",
+                    tmp,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    anchor,
+                )
             self.assertEqual(rc, 0)
             state = load_state(paths)
             self.assertIsNone(state.get("five_hour_calibration_needed"))
@@ -277,10 +361,11 @@ class TestConnectivityFlow(unittest.TestCase):
 # 3. Telegram user management CLI
 # ===========================================================================
 
-class TestTelegramUserManagement(unittest.TestCase):
 
+class TestTelegramUserManagement(unittest.TestCase):
     def _cfg_telegram(self, tmp: str) -> AppPaths:
         import copy
+
         paths = _paths(tmp)
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         cfg["telegram"]["enabled"] = True
@@ -300,7 +385,9 @@ class TestTelegramUserManagement(unittest.TestCase):
     def test_add_user_appends(self):
         with tempfile.TemporaryDirectory() as tmp:
             self._cfg_telegram(tmp)
-            rc, env = _run_capture("--home", tmp, "--json", "telegram-user", "add", "--user-id", "999")
+            rc, env = _run_capture(
+                "--home", tmp, "--json", "telegram-user", "add", "--user-id", "999"
+            )
             self.assertEqual(rc, 0)
             self.assertIn(111, env["data"]["allowed_user_ids"])
             self.assertIn(999, env["data"]["allowed_user_ids"])
@@ -315,21 +402,27 @@ class TestTelegramUserManagement(unittest.TestCase):
     def test_remove_user(self):
         with tempfile.TemporaryDirectory() as tmp:
             self._cfg_telegram(tmp)
-            rc, env = _run_capture("--home", tmp, "--json", "telegram-user", "remove", "--user-id", "111")
+            rc, env = _run_capture(
+                "--home", tmp, "--json", "telegram-user", "remove", "--user-id", "111"
+            )
             self.assertEqual(rc, 0)
             self.assertNotIn(111, env["data"]["allowed_user_ids"])
 
     def test_add_chat(self):
         with tempfile.TemporaryDirectory() as tmp:
             self._cfg_telegram(tmp)
-            rc, env = _run_capture("--home", tmp, "--json", "telegram-user", "add", "--chat-id", "555")
+            rc, env = _run_capture(
+                "--home", tmp, "--json", "telegram-user", "add", "--chat-id", "555"
+            )
             self.assertEqual(rc, 0)
             self.assertIn(555, env["data"]["allowed_chat_ids"])
 
     def test_remove_chat(self):
         with tempfile.TemporaryDirectory() as tmp:
             self._cfg_telegram(tmp)
-            rc, env = _run_capture("--home", tmp, "--json", "telegram-user", "remove", "--chat-id", "222")
+            rc, env = _run_capture(
+                "--home", tmp, "--json", "telegram-user", "remove", "--chat-id", "222"
+            )
             self.assertEqual(rc, 0)
             self.assertNotIn(222, env["data"]["allowed_chat_ids"])
 
@@ -339,6 +432,7 @@ class TestTelegramUserManagement(unittest.TestCase):
             _run_capture("--home", tmp, "--json", "telegram-user", "add", "--user-id", "777")
             _run_capture("--home", tmp, "--json", "telegram-user", "remove", "--user-id", "111")
             from claude_starter.config import load_config
+
             cfg = load_config(paths)
             self.assertIn(777, cfg["telegram"]["allowed_user_ids"])
             self.assertNotIn(111, cfg["telegram"]["allowed_user_ids"])
@@ -348,13 +442,11 @@ class TestTelegramUserManagement(unittest.TestCase):
 # 4. Telegram bot authorization
 # ===========================================================================
 
+
 class TestTelegramAuthorization(unittest.TestCase):
     """Test the authorized() method for all combinations."""
 
     def _make_bot(self, tmp: str, user_ids=None, chat_ids=None, private_only=True):
-        import copy
-        from claude_starter.telegram_bot import TelegramBot
-        from claude_starter.telegram_api import TelegramAPI
         paths = _paths(tmp)
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         cfg["telegram"]["enabled"] = True
@@ -410,18 +502,21 @@ class TestTelegramAuthorization(unittest.TestCase):
 # 5. Telegram pair append behavior
 # ===========================================================================
 
+
 class TestTelegramPairAppend(unittest.TestCase):
     """telegram-pair must append to existing lists, not replace."""
 
     def _mock_updates(self, user_id: int, chat_id: int, code: str) -> list:
-        return [{
-            "update_id": 1,
-            "message": {
-                "from": {"id": user_id},
-                "chat": {"id": chat_id, "type": "private"},
-                "text": f"/pair {code}",
+        return [
+            {
+                "update_id": 1,
+                "message": {
+                    "from": {"id": user_id},
+                    "chat": {"id": chat_id, "type": "private"},
+                    "text": f"/pair {code}",
+                },
             }
-        }]
+        ]
 
     def test_pair_appends_user(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -432,19 +527,21 @@ class TestTelegramPairAppend(unittest.TestCase):
             cfg["telegram"]["enabled"] = False
             save_config(paths, cfg)
 
-            from claude_starter.cli import execute, build_parser
             args = build_parser().parse_args(
                 ["--home", tmp, "--json", "telegram-pair", "--code", "TESTCODE", "--token-stdin"]
             )
             api_mock = mock.MagicMock()
             api_mock.get_updates.return_value = self._mock_updates(999, 888, "TESTCODE")
 
-            with mock.patch("claude_starter.cli.TelegramAPI", return_value=api_mock), \
-                 mock.patch("claude_starter.cli.service_action"), \
-                 mock.patch("claude_starter.cli._read_token_stdin", return_value="fake-token"):
+            with (
+                mock.patch("claude_starter.cli.TelegramAPI", return_value=api_mock),
+                mock.patch("claude_starter.cli.service_action"),
+                mock.patch("claude_starter.cli._read_token_stdin", return_value="fake-token"),
+            ):
                 status, data = execute(args, paths)
 
             from claude_starter.config import load_config
+
             cfg_after = load_config(paths)
             # Original user still present
             self.assertIn(111, cfg_after["telegram"]["allowed_user_ids"])
@@ -458,13 +555,11 @@ class TestTelegramPairAppend(unittest.TestCase):
 # 6. Telegram bot human-readable responses
 # ===========================================================================
 
+
 class TestTelegramBotResponses(unittest.TestCase):
     """Verify bot sends human-readable text, not raw JSON."""
 
     def _bot_and_api(self, tmp: str, user_ids=None, chat_ids=None):
-        import copy
-        from claude_starter.telegram_bot import TelegramBot
-        from claude_starter.telegram_api import TelegramAPI
         paths = _paths(tmp)
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         cfg["enabled"] = True
@@ -487,7 +582,7 @@ class TestTelegramBotResponses(unittest.TestCase):
                 "from": {"id": user_id},
                 "chat": {"id": chat_id, "type": "private"},
                 "text": text,
-            }
+            },
         }
         bot.handle_update(update)
 
@@ -512,14 +607,20 @@ class TestTelegramBotResponses(unittest.TestCase):
             cfg["telegram"]["confirmation_ttl_seconds"] = 60
             cfg["telegram"]["max_prompt_length"] = 500
             cfg["windows"] = {
-                "five_hour": {"enabled": True, "anchor_iso": "2026-01-01T00:00:00+00:00", "interval_minutes": 303},
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": "2026-01-01T00:00:00+00:00",
+                    "interval_minutes": 303,
+                },
                 "weekly": {"enabled": False, "anchor_iso": None, "interval_minutes": 10080},
             }
             save_config(paths, cfg)
             with mock.patch(
                 "claude_starter.telegram_bot.query_usage",
                 return_value={
-                    "formatted_text": "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
+                    "formatted_text": (
+                        "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
+                    )
                 },
             ):
                 self._send(bot, "/usage")
@@ -578,6 +679,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             args = api.send_message.call_args[0]
             self.assertIn("555", args[1])
             from claude_starter.config import load_config
+
             cfg = load_config(paths)
             self.assertIn(555, cfg["telegram"]["allowed_user_ids"])
 
@@ -586,6 +688,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             bot, api, paths = self._bot_and_api(tmp)
             self._send(bot, "/removeuser", "100")
             from claude_starter.config import load_config
+
             cfg = load_config(paths)
             self.assertNotIn(100, cfg["telegram"]["allowed_user_ids"])
 
@@ -602,6 +705,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             bot, api, paths = self._bot_and_api(tmp)
             self._send(bot, "/setmodel", "sonnet")
             from claude_starter.config import load_config
+
             cfg = load_config(paths)
             self.assertEqual(cfg["model"], "sonnet")
 
@@ -610,6 +714,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             bot, api, paths = self._bot_and_api(tmp)
             self._send(bot, "/automation_off")
             from claude_starter.config import load_config
+
             self.assertFalse(load_config(paths)["enabled"])
             # Clear rate limit state so second command is accepted
             update_state(paths, lambda s: s.pop("telegram_rate_limits", None) or None)
@@ -621,6 +726,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             bot, api, paths = self._bot_and_api(tmp)
             # Set up windows config
             from claude_starter.config import load_config
+
             cfg = load_config(paths)
             cfg["windows"] = {
                 "five_hour": {"enabled": True, "anchor_iso": None, "interval_minutes": 303},
@@ -637,6 +743,7 @@ class TestTelegramBotResponses(unittest.TestCase):
 # 7. UI interaction loops — config patch-stdin combinations
 # ===========================================================================
 
+
 class TestUIInteractionLoops(unittest.TestCase):
     """Simulate all UI button interactions to verify no state corruption."""
 
@@ -648,24 +755,31 @@ class TestUIInteractionLoops(unittest.TestCase):
             cfg["model"] = "haiku"
             cfg["prompt"] = "Test prompt"
             cfg["windows"] = {
-                "five_hour": {"enabled": True, "anchor_iso": "2026-07-25T10:00:00Z", "interval_minutes": 303},
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": "2026-07-25T10:00:00Z",
+                    "interval_minutes": 303,
+                },
                 "weekly": {"enabled": False, "anchor_iso": None, "interval_minutes": 10080},
             }
             save_config(paths, cfg)
 
             # Simulate toggle — sends only enabled + background_enabled + windows.*.enabled
-            patch = json.dumps({
-                "enabled": True,
-                "background_enabled": False,
-                "windows": {
-                    "five_hour": {"enabled": True},
-                    "weekly": {"enabled": False},
-                },
-            }).encode()
+            patch = json.dumps(
+                {
+                    "enabled": True,
+                    "background_enabled": False,
+                    "windows": {
+                        "five_hour": {"enabled": True},
+                        "weekly": {"enabled": False},
+                    },
+                }
+            ).encode()
             with mock.patch("sys.stdin", io.TextIOWrapper(io.BytesIO(patch))):
                 rc, env = _run_capture("--home", tmp, "--json", "config", "patch-stdin")
             self.assertEqual(rc, 0)
             from claude_starter.config import load_config
+
             cfg2 = load_config(paths)
             self.assertEqual(cfg2["model"], "haiku")
             self.assertEqual(cfg2["prompt"], "Test prompt")
@@ -677,34 +791,45 @@ class TestUIInteractionLoops(unittest.TestCase):
             paths = _paths(tmp)
             cfg = dict(DEFAULT_CONFIG)
             cfg["windows"] = {
-                "five_hour": {"enabled": True, "anchor_iso": "2026-07-20T08:00:00Z", "interval_minutes": 303},
-                "weekly": {"enabled": True, "anchor_iso": "2026-07-14T08:00:00Z", "interval_minutes": 10080},
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": "2026-07-20T08:00:00Z",
+                    "interval_minutes": 303,
+                },
+                "weekly": {
+                    "enabled": True,
+                    "anchor_iso": "2026-07-14T08:00:00Z",
+                    "interval_minutes": 10080,
+                },
             }
             save_config(paths, cfg)
             # Patch that mirrors saveConfiguration() (no anchor_iso in windows)
-            patch = json.dumps({
-                "enabled": True,
-                "background_enabled": True,
-                "timezone": "Europe/Istanbul",
-                "model": "sonnet",
-                "prompt": "New prompt",
-                "timeout_seconds": 180,
-                "windows": {
-                    "five_hour": {"enabled": True},
-                    "weekly": {"enabled": True},
-                },
-                "telegram": {
-                    "enabled": False,
-                    "allowed_user_ids": [],
-                    "allowed_chat_ids": [],
-                    "notification_chat_id": None,
-                    "notification_channel_id": None,
-                },
-            }).encode()
+            patch = json.dumps(
+                {
+                    "enabled": True,
+                    "background_enabled": True,
+                    "timezone": "Europe/Istanbul",
+                    "model": "sonnet",
+                    "prompt": "New prompt",
+                    "timeout_seconds": 180,
+                    "windows": {
+                        "five_hour": {"enabled": True},
+                        "weekly": {"enabled": True},
+                    },
+                    "telegram": {
+                        "enabled": False,
+                        "allowed_user_ids": [],
+                        "allowed_chat_ids": [],
+                        "notification_chat_id": None,
+                        "notification_channel_id": None,
+                    },
+                }
+            ).encode()
             with mock.patch("sys.stdin", io.TextIOWrapper(io.BytesIO(patch))):
                 rc, env = _run_capture("--home", tmp, "--json", "config", "patch-stdin")
             self.assertEqual(rc, 0)
             from claude_starter.config import load_config
+
             cfg2 = load_config(paths)
             self.assertEqual(cfg2["windows"]["five_hour"]["anchor_iso"], "2026-07-20T08:00:00Z")
             self.assertEqual(cfg2["windows"]["weekly"]["anchor_iso"], "2026-07-14T08:00:00Z")
@@ -724,19 +849,29 @@ class TestUIInteractionLoops(unittest.TestCase):
 
             # Step 1: Calibrate
             with mock.patch("claude_starter.cli.notify"):
-                rc, _ = _run_capture("--home", tmp, "--json", "calibrate",
-                                     "--window-type", "five_hour", "--anchor", "2026-07-26T10:00:00Z")
+                rc, _ = _run_capture(
+                    "--home",
+                    tmp,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    "2026-07-26T10:00:00Z",
+                )
             self.assertEqual(rc, 0)
 
             # Step 2: Toggle sleep mode (simulates UI auto-save with no anchor_iso)
-            patch = json.dumps({
-                "enabled": True,
-                "background_enabled": True,
-                "windows": {
-                    "five_hour": {"enabled": True},
-                    "weekly": {"enabled": False},
-                },
-            }).encode()
+            patch = json.dumps(
+                {
+                    "enabled": True,
+                    "background_enabled": True,
+                    "windows": {
+                        "five_hour": {"enabled": True},
+                        "weekly": {"enabled": False},
+                    },
+                }
+            ).encode()
             with mock.patch("sys.stdin", io.TextIOWrapper(io.BytesIO(patch))):
                 _run_capture("--home", tmp, "--json", "config", "patch-stdin")
 
@@ -752,15 +887,25 @@ class TestUIInteractionLoops(unittest.TestCase):
 # 8. Scheduler Z-suffix fix
 # ===========================================================================
 
+
 class TestSchedulerZSuffix(unittest.TestCase):
     def test_next_runs_with_z_suffix_anchor(self):
         from claude_starter.scheduler import next_runs
+
         with tempfile.TemporaryDirectory() as tmp:
             paths = _paths(tmp)
             cfg = dict(DEFAULT_CONFIG)
             cfg["windows"] = {
-                "five_hour": {"enabled": True, "anchor_iso": "2026-01-01T00:00:00Z", "interval_minutes": 303},
-                "weekly": {"enabled": True, "anchor_iso": "2026-01-01T00:00:00Z", "interval_minutes": 10080},
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": "2026-01-01T00:00:00Z",
+                    "interval_minutes": 303,
+                },
+                "weekly": {
+                    "enabled": True,
+                    "anchor_iso": "2026-01-01T00:00:00Z",
+                    "interval_minutes": 10080,
+                },
             }
             save_config(paths, cfg)
             result = next_runs(paths, cfg)
@@ -769,16 +914,23 @@ class TestSchedulerZSuffix(unittest.TestCase):
 
     def test_next_runs_with_stored_z_suffix(self):
         from claude_starter.scheduler import next_runs
+
         with tempfile.TemporaryDirectory() as tmp:
             paths = _paths(tmp)
             cfg = dict(DEFAULT_CONFIG)
             cfg["windows"] = {
-                "five_hour": {"enabled": True, "anchor_iso": "2026-01-01T00:00:00+00:00", "interval_minutes": 303},
+                "five_hour": {
+                    "enabled": True,
+                    "anchor_iso": "2026-01-01T00:00:00+00:00",
+                    "interval_minutes": 303,
+                },
                 "weekly": {"enabled": False, "anchor_iso": None, "interval_minutes": 10080},
             }
             save_config(paths, cfg)
             # State with Z-suffix next_run_at (as stored by Swift)
-            update_state(paths, lambda s: s.update({"five_hour_next_run_at": "2026-12-31T00:00:00Z"}))
+            update_state(
+                paths, lambda s: s.update({"five_hour_next_run_at": "2026-12-31T00:00:00Z"})
+            )
             result = next_runs(paths, cfg)
             self.assertIn("five_hour", result)
             # Should parse without ValueError
@@ -789,9 +941,11 @@ class TestSchedulerZSuffix(unittest.TestCase):
 # 9. mac notification helper
 # ===========================================================================
 
+
 class TestMacNotification(unittest.TestCase):
     def test_send_mac_notification_does_not_raise(self):
         from claude_starter.service_utils import send_mac_notification
+
         with mock.patch("subprocess.run") as mock_run:
             mock_run.return_value = mock.MagicMock(returncode=0)
             send_mac_notification("Title", "Body message")
@@ -799,6 +953,7 @@ class TestMacNotification(unittest.TestCase):
 
     def test_send_mac_notification_escapes_quotes(self):
         from claude_starter.service_utils import send_mac_notification
+
         with mock.patch("subprocess.run") as mock_run:
             mock_run.return_value = mock.MagicMock(returncode=0)
             # Should not raise even with quotes in title/body
@@ -810,19 +965,28 @@ class TestMacNotification(unittest.TestCase):
 # 10. Edge cases
 # ===========================================================================
 
+
 class TestEdgeCases(unittest.TestCase):
     def test_status_with_no_windows_configured(self):
         """Status with no windows section should not crash."""
         with tempfile.TemporaryDirectory() as tmp:
-            paths = _paths(tmp)
+            _paths(tmp)
             rc, env = _run_capture("--home", tmp, "--json", "status")
             self.assertEqual(rc, 0)
             self.assertTrue(env["ok"])
 
     def test_calibrate_invalid_anchor_returns_error_json(self):
         with tempfile.TemporaryDirectory() as tmp:
-            rc, env = _run_capture("--home", tmp, "--json", "calibrate",
-                                   "--window-type", "five_hour", "--anchor", "not-a-date")
+            rc, env = _run_capture(
+                "--home",
+                tmp,
+                "--json",
+                "calibrate",
+                "--window-type",
+                "five_hour",
+                "--anchor",
+                "not-a-date",
+            )
             self.assertNotEqual(rc, 0)
             self.assertFalse(env["ok"])
 
@@ -835,6 +999,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_telegram_user_list_empty_by_default(self):
         import copy
+
         with tempfile.TemporaryDirectory() as tmp:
             paths = _paths(tmp)
             cfg = copy.deepcopy(DEFAULT_CONFIG)

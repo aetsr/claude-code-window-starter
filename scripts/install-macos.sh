@@ -28,7 +28,7 @@ if [[ ! -f "$BASE/shared/config/config.json" ]]; then
 fi
 
 "$RELEASE/.venv/bin/python" -m compileall -q "$RELEASE/backend"
-python3 -c 'import json,pathlib,platform,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"schema_version":2,"application_version":"2.0.0","commit_sha":sys.argv[3],"short_commit_sha":sys.argv[3][:12],"build_time":sys.argv[2],"python_version":platform.python_version(),"healthy":True,"install_result":"local_install"},indent=2)+"\n")' "$RELEASE/release.json" "$STAMP" "$SOURCE_SHA"
+python3 -c 'import json,pathlib,platform,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"schema_version":2,"application_version":"2.1.0","commit_sha":sys.argv[3],"short_commit_sha":sys.argv[3][:12],"build_time":sys.argv[2],"python_version":platform.python_version(),"healthy":True,"install_result":"local_install"},indent=2)+"\n")' "$RELEASE/release.json" "$STAMP" "$SOURCE_SHA"
 
 atomic_link() {
   local target="$1"
@@ -121,4 +121,4 @@ terminate_stale_telegram_worker legacy
 python3 -c 'import pathlib,shutil,sys; base=pathlib.Path(sys.argv[1]); releases=sorted((p for p in (base/"releases").iterdir() if p.is_dir()),reverse=True); protected={p.resolve() for p in (base/"current",base/"previous") if p.exists()}; [shutil.rmtree(p) for index,p in enumerate(releases) if index>=5 and p.resolve() not in protected]' "$BASE"
 echo "Installed: $APP_DESTINATION"
 echo "Backend: $BASE/current"
-echo "Automation, Telegram, and background mode remain disabled until explicitly enabled."
+echo "Existing automation, Telegram, and background preferences were preserved."

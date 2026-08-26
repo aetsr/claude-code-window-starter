@@ -75,6 +75,12 @@ struct ClientSettings: Codable, Equatable {
 
     // Window configuration
     var fiveHourEnabled = true
+    var fiveHourMode = "adaptive"
+    var busyStartLocal = "08:00"
+    var busyEndLocal = "17:00"
+    var activeWeekdays = [1, 2, 3, 4, 5]
+    var fiveHourStrategy = "maximize_quota"
+    var resetGraceSeconds = 180
     var fiveHourAnchorISO = ""
     var fiveHourIntervalMinutes = 303
     var weeklyEnabled = false
@@ -85,6 +91,8 @@ struct ClientSettings: Codable, Equatable {
         case scheduleTime, timezone, model, prompt, timeout, enabled, backgroundEnabled, catchUp
         case telegramUserID, telegramChatID, notificationID, telegramEnabled, notificationIsChannel
         case fiveHourEnabled, fiveHourAnchorISO, fiveHourIntervalMinutes
+        case fiveHourMode, busyStartLocal, busyEndLocal, activeWeekdays
+        case fiveHourStrategy, resetGraceSeconds
         case weeklyEnabled, weeklyAnchorISO, weeklyIntervalMinutes
     }
 
@@ -106,6 +114,12 @@ struct ClientSettings: Codable, Equatable {
         telegramEnabled = try values.decodeIfPresent(Bool.self, forKey: .telegramEnabled) ?? telegramEnabled
         notificationIsChannel = try values.decodeIfPresent(Bool.self, forKey: .notificationIsChannel) ?? notificationIsChannel
         fiveHourEnabled = try values.decodeIfPresent(Bool.self, forKey: .fiveHourEnabled) ?? fiveHourEnabled
+        fiveHourMode = try values.decodeIfPresent(String.self, forKey: .fiveHourMode) ?? fiveHourMode
+        busyStartLocal = try values.decodeIfPresent(String.self, forKey: .busyStartLocal) ?? busyStartLocal
+        busyEndLocal = try values.decodeIfPresent(String.self, forKey: .busyEndLocal) ?? busyEndLocal
+        activeWeekdays = try values.decodeIfPresent([Int].self, forKey: .activeWeekdays) ?? activeWeekdays
+        fiveHourStrategy = try values.decodeIfPresent(String.self, forKey: .fiveHourStrategy) ?? fiveHourStrategy
+        resetGraceSeconds = try values.decodeIfPresent(Int.self, forKey: .resetGraceSeconds) ?? resetGraceSeconds
         fiveHourAnchorISO = try values.decodeIfPresent(String.self, forKey: .fiveHourAnchorISO) ?? fiveHourAnchorISO
         fiveHourIntervalMinutes = try values.decodeIfPresent(Int.self, forKey: .fiveHourIntervalMinutes) ?? fiveHourIntervalMinutes
         weeklyEnabled = try values.decodeIfPresent(Bool.self, forKey: .weeklyEnabled) ?? weeklyEnabled
@@ -129,6 +143,12 @@ struct ClientSettings: Codable, Equatable {
         try values.encode(telegramEnabled, forKey: .telegramEnabled)
         try values.encode(notificationIsChannel, forKey: .notificationIsChannel)
         try values.encode(fiveHourEnabled, forKey: .fiveHourEnabled)
+        try values.encode(fiveHourMode, forKey: .fiveHourMode)
+        try values.encode(busyStartLocal, forKey: .busyStartLocal)
+        try values.encode(busyEndLocal, forKey: .busyEndLocal)
+        try values.encode(activeWeekdays, forKey: .activeWeekdays)
+        try values.encode(fiveHourStrategy, forKey: .fiveHourStrategy)
+        try values.encode(resetGraceSeconds, forKey: .resetGraceSeconds)
         try values.encode(fiveHourAnchorISO, forKey: .fiveHourAnchorISO)
         try values.encode(fiveHourIntervalMinutes, forKey: .fiveHourIntervalMinutes)
         try values.encode(weeklyEnabled, forKey: .weeklyEnabled)

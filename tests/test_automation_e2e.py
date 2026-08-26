@@ -14,10 +14,8 @@ from unittest import mock
 
 from claude_starter.cli import main
 from claude_starter.config import DEFAULT_CONFIG, save_config
-from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
-from claude_starter.state import load_state, update_state
-from claude_starter.windows import advance_window
+from claude_starter.state import load_state
 
 FAKE = """#!{python}
 import json, sys
@@ -57,6 +55,7 @@ class AutomationE2ETests(unittest.TestCase):
             # Set up five-hour window with anchor in the past
             anchor = datetime.now(timezone.utc) - timedelta(hours=6)
             config["windows"]["five_hour"]["enabled"] = True
+            config["windows"]["five_hour"]["mode"] = "manual"
             config["windows"]["five_hour"]["anchor_iso"] = anchor.isoformat()
             config["windows"]["five_hour"]["interval_minutes"] = 303
             config["enabled"] = True
@@ -112,7 +111,9 @@ class AutomationE2ETests(unittest.TestCase):
 
             # Verify config was updated
             updated_config = json.loads(paths.config_file.read_text())
-            self.assertEqual(updated_config["windows"]["five_hour"]["anchor_iso"], anchor.isoformat())
+            self.assertEqual(
+                updated_config["windows"]["five_hour"]["anchor_iso"], anchor.isoformat()
+            )
 
     def test_status_command_shows_window_info(self) -> None:
         """Test that status command displays window countdown and next_run_at."""
@@ -122,6 +123,7 @@ class AutomationE2ETests(unittest.TestCase):
             config = json.loads(json.dumps(DEFAULT_CONFIG))
             anchor = datetime.now(timezone.utc) - timedelta(hours=4)
             config["windows"]["five_hour"]["enabled"] = True
+            config["windows"]["five_hour"]["mode"] = "manual"
             config["windows"]["five_hour"]["anchor_iso"] = anchor.isoformat()
             config["windows"]["five_hour"]["interval_minutes"] = 303
             save_config(paths, config)
@@ -184,7 +186,6 @@ class AutomationE2ETests(unittest.TestCase):
                 self.assertIsNone(state.get("five_hour_last_triggered_at"))
                 self.assertIsNone(state.get("five_hour_next_run_at"))
 
-
     def test_calibrate_with_z_suffix_anchor(self) -> None:
         """Calibrate must succeed when anchor uses Z suffix (Swift/macOS app format)."""
         with tempfile.TemporaryDirectory() as directory:
@@ -199,10 +200,14 @@ class AutomationE2ETests(unittest.TestCase):
             with redirect_stdout(output):
                 code = main(
                     [
-                        "--home", str(paths.base),
-                        "--json", "calibrate",
-                        "--window-type", "five_hour",
-                        "--anchor", anchor_z,
+                        "--home",
+                        str(paths.base),
+                        "--json",
+                        "calibrate",
+                        "--window-type",
+                        "five_hour",
+                        "--anchor",
+                        anchor_z,
                     ]
                 )
             self.assertEqual(code, 0)
@@ -213,12 +218,13 @@ class AutomationE2ETests(unittest.TestCase):
 
             # State must have next_run_at set
             from claude_starter.state import load_state
+
             state = load_state(paths)
             self.assertIsNotNone(state.get("five_hour_next_run_at"))
             self.assertIsNone(state.get("five_hour_calibration_needed"))
 
     def test_calibrate_disabled_window_z_suffix(self) -> None:
-        """Calibrate must work even when window is disabled (edge case that caused invalidOutput)."""
+        """Calibrate must work even when a window is disabled."""
         with tempfile.TemporaryDirectory() as directory:
             paths = AppPaths(Path(directory))
             paths.ensure()
@@ -232,10 +238,14 @@ class AutomationE2ETests(unittest.TestCase):
             with redirect_stdout(output):
                 code = main(
                     [
-                        "--home", str(paths.base),
-                        "--json", "calibrate",
-                        "--window-type", "five_hour",
-                        "--anchor", anchor_z,
+                        "--home",
+                        str(paths.base),
+                        "--json",
+                        "calibrate",
+                        "--window-type",
+                        "five_hour",
+                        "--anchor",
+                        anchor_z,
                     ]
                 )
             self.assertEqual(code, 0)
@@ -257,10 +267,14 @@ class AutomationE2ETests(unittest.TestCase):
             with redirect_stdout(output):
                 code = main(
                     [
-                        "--home", str(paths.base),
-                        "--json", "calibrate",
-                        "--window-type", "weekly",
-                        "--anchor", anchor_z,
+                        "--home",
+                        str(paths.base),
+                        "--json",
+                        "calibrate",
+                        "--window-type",
+                        "weekly",
+                        "--anchor",
+                        anchor_z,
                     ]
                 )
             self.assertEqual(code, 0)
@@ -277,14 +291,19 @@ class AutomationE2ETests(unittest.TestCase):
             save_config(paths, config)
 
             import io as _io
+
             stderr_buf = _io.StringIO()
             with mock.patch("sys.stderr", stderr_buf):
                 code = main(
                     [
-                        "--home", str(paths.base),
-                        "--json", "calibrate",
-                        "--window-type", "five_hour",
-                        "--anchor", "not-a-valid-datetime",
+                        "--home",
+                        str(paths.base),
+                        "--json",
+                        "calibrate",
+                        "--window-type",
+                        "five_hour",
+                        "--anchor",
+                        "not-a-valid-datetime",
                     ]
                 )
             self.assertNotEqual(code, 0)

@@ -16,6 +16,7 @@ AppModel parses:
   calibrate → perform() then refreshStatus
   service telegram → perform(), result shown in statusText
 """
+
 from __future__ import annotations
 
 import io
@@ -85,12 +86,12 @@ def _enabled_config(paths: AppPaths, **overrides) -> dict:
 # 1. Envelope shape — every response must satisfy BackendClient contract
 # ---------------------------------------------------------------------------
 class EnvelopeShapeTests(unittest.TestCase):
-    """Every CLI command must return schema_version=3 JSON with ok/status/data."""
+    """Every CLI command must return schema_version=4 JSON with ok/status/data."""
 
     REQUIRED_KEYS = {"schema_version", "ok", "status", "error", "data"}
 
     def _assert_envelope(self, result: dict, *, ok: bool) -> None:
-        self.assertEqual(result.get("schema_version"), 3)
+        self.assertEqual(result.get("schema_version"), 4)
         self.assertEqual(result.get("ok"), ok)
         self.assertIn("status", result)
         missing = self.REQUIRED_KEYS - result.keys()
@@ -116,18 +117,36 @@ class EnvelopeShapeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             paths = _make_paths(d)
             _enabled_config(paths)
-            code, result = _run(["--home", d, "--json", "calibrate",
-                                   "--window-type", "five_hour",
-                                   "--anchor", "2026-07-25T10:00:00Z"])
+            code, result = _run(
+                [
+                    "--home",
+                    d,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    "2026-07-25T10:00:00Z",
+                ]
+            )
             self.assertEqual(code, 0)
             self._assert_envelope(result, ok=True)
 
     def test_invalid_command_returns_json_error(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             _make_paths(d)
-            code, result = _run(["--home", d, "--json", "calibrate",
-                                   "--window-type", "five_hour",
-                                   "--anchor", "not-a-date"])
+            code, result = _run(
+                [
+                    "--home",
+                    d,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    "not-a-date",
+                ]
+            )
             self.assertNotEqual(code, 0)
             self._assert_envelope(result, ok=False)
             self.assertIsNotNone(result.get("error"))
@@ -172,8 +191,15 @@ class StatusResponseTests(unittest.TestCase):
             save_config(paths, config)
             data = self._get_status_data(paths)
             w = data["windows"]["five_hour"]
-            for key in ("enabled", "anchor_iso", "next_run_at", "countdown",
-                        "last_triggered_at", "last_result", "calibration_needed"):
+            for key in (
+                "enabled",
+                "anchor_iso",
+                "next_run_at",
+                "countdown",
+                "last_triggered_at",
+                "last_result",
+                "calibration_needed",
+            ):
                 self.assertIn(key, w, f"Missing window field: {key}")
 
     def test_status_has_health_section(self) -> None:
@@ -217,8 +243,16 @@ class ConfigGetTests(unittest.TestCase):
             code, result = _run(["--home", d, "--json", "config", "get"])
             self.assertEqual(code, 0)
             data = result["data"]
-            for key in ("timezone", "model", "prompt", "timeout_seconds",
-                        "enabled", "background_enabled", "windows", "telegram"):
+            for key in (
+                "timezone",
+                "model",
+                "prompt",
+                "timeout_seconds",
+                "enabled",
+                "background_enabled",
+                "windows",
+                "telegram",
+            ):
                 self.assertIn(key, data, f"Missing config field: {key}")
 
     def test_config_get_windows_has_anchor_and_interval(self) -> None:
@@ -241,8 +275,18 @@ class CalibrateTests(unittest.TestCase):
     """Calibrate must accept every anchor format the Swift app produces."""
 
     def _calibrate(self, paths: AppPaths, window_type: str, anchor: str) -> dict:
-        code, result = _run(["--home", str(paths.base), "--json", "calibrate",
-                               "--window-type", window_type, "--anchor", anchor])
+        code, result = _run(
+            [
+                "--home",
+                str(paths.base),
+                "--json",
+                "calibrate",
+                "--window-type",
+                window_type,
+                "--anchor",
+                anchor,
+            ]
+        )
         self.assertEqual(code, 0, f"calibrate failed: {result}")
         self.assertTrue(result["ok"])
         return result
@@ -293,8 +337,10 @@ class CalibrateTests(unittest.TestCase):
             paths = _make_paths(d)
             _enabled_config(paths)
             # Simulate pre-existing calibration_needed flag
-            update_state(paths, lambda s: s.__setitem__("five_hour_calibration_needed",
-                                                         {"error_message": "stale"}))
+            update_state(
+                paths,
+                lambda s: s.__setitem__("five_hour_calibration_needed", {"error_message": "stale"}),
+            )
             self._calibrate(paths, "five_hour", "2026-07-25T10:00:00Z")
             state = load_state(paths)
             self.assertIsNone(state.get("five_hour_calibration_needed"))
@@ -303,9 +349,18 @@ class CalibrateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             paths = _make_paths(d)
             _enabled_config(paths)
-            code, result = _run(["--home", d, "--json", "calibrate",
-                                   "--window-type", "five_hour",
-                                   "--anchor", "garbage"])
+            code, result = _run(
+                [
+                    "--home",
+                    d,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    "garbage",
+                ]
+            )
             self.assertNotEqual(code, 0)
             self.assertFalse(result["ok"])
             # Must be parseable JSON (not raw traceback)
@@ -332,21 +387,30 @@ class RunCommandTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_run_returns_success_with_model(self) -> None:
         with mock.patch.dict(os.environ, self._env, clear=False):
-            code, result = _run(["--home", self._tmpdir, "--json", "run",
-                                   "--trigger", "macos_ui"])
+            code, result = _run(["--home", self._tmpdir, "--json", "run", "--trigger", "macos_ui"])
         self.assertEqual(code, 0)
         self.assertTrue(result["ok"])
         self.assertIn("selected_model", result["data"])
 
     def test_run_with_window_type_updates_state(self) -> None:
         with mock.patch.dict(os.environ, self._env, clear=False):
-            code, result = _run(["--home", self._tmpdir, "--json", "run",
-                                   "--window-type", "five_hour",
-                                   "--trigger", "background"])
+            code, result = _run(
+                [
+                    "--home",
+                    self._tmpdir,
+                    "--json",
+                    "run",
+                    "--window-type",
+                    "five_hour",
+                    "--trigger",
+                    "background",
+                ]
+            )
         self.assertEqual(code, 0)
         state = load_state(self.paths)
         self.assertIsNotNone(state.get("five_hour_last_triggered_at"))
@@ -385,22 +449,24 @@ class ConfigPatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             paths = _make_paths(d)
             _enabled_config(paths)
-            patch = json.dumps({
-                "enabled": True,
-                "background_enabled": False,
-                "windows": {
-                    "five_hour": {
-                        "enabled": True,
-                        "anchor_iso": "2026-07-25T10:00:00Z",
-                        "interval_minutes": 303,
+            patch = json.dumps(
+                {
+                    "enabled": True,
+                    "background_enabled": False,
+                    "windows": {
+                        "five_hour": {
+                            "enabled": True,
+                            "anchor_iso": "2026-07-25T10:00:00Z",
+                            "interval_minutes": 303,
+                        },
+                        "weekly": {
+                            "enabled": False,
+                            "anchor_iso": None,
+                            "interval_minutes": 10080,
+                        },
                     },
-                    "weekly": {
-                        "enabled": False,
-                        "anchor_iso": None,
-                        "interval_minutes": 10080,
-                    },
-                },
-            })
+                }
+            )
             out = io.StringIO()
             with redirect_stdout(out):
                 with mock.patch("sys.stdin", io.StringIO(patch)):
@@ -425,8 +491,7 @@ class TelegramServiceTests(unittest.TestCase):
             "claude_starter.cli.service_action",
             return_value={"label": "com.test", "action": action, "output": ""},
         ):
-            return _run(["--home", str(paths.base), "--json",
-                          "service", "telegram", action])
+            return _run(["--home", str(paths.base), "--json", "service", "telegram", action])
 
     def test_start_returns_ok(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -478,8 +543,16 @@ class ErrorRobustnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             _make_paths(d)
             code, output = self._run_capture_all(
-                ["--home", d, "--json", "calibrate",
-                 "--window-type", "five_hour", "--anchor", "bad-date"]
+                [
+                    "--home",
+                    d,
+                    "--json",
+                    "calibrate",
+                    "--window-type",
+                    "five_hour",
+                    "--anchor",
+                    "bad-date",
+                ]
             )
             self.assertNotEqual(code, 0)
             self.assertTrue(self._is_json_envelope(output), f"Not JSON: {output[:200]}")
@@ -494,8 +567,9 @@ class ErrorRobustnessTests(unittest.TestCase):
             ):
                 code, output = self._run_capture_all(["--home", d, "--json", "status"])
             self.assertNotEqual(code, 0)
-            self.assertTrue(self._is_json_envelope(output),
-                            f"Expected JSON envelope, got: {output[:200]}")
+            self.assertTrue(
+                self._is_json_envelope(output), f"Expected JSON envelope, got: {output[:200]}"
+            )
 
     def test_status_on_empty_dir_is_ok(self) -> None:
         """Status on a fresh directory must succeed (creates defaults)."""

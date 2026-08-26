@@ -18,11 +18,13 @@
 
 ## What it does
 
-Claude Window Starter runs a single scheduled Claude Code subscription request on macOS, respecting your 5-hour usage windows. It ships as a native Swift menu-bar app backed by a pure-stdlib Python agent.
+Claude Window Starter aligns Claude Code's server-reported five-hour quota windows with your busy hours on macOS. You choose a local work period (default `08:00–17:00`, Monday–Friday); the native Swift app and Telegram bot share one pure-stdlib Python planner.
 
-- **Window scheduling** — 5-hour and weekly windows with automatic anchor calibration
-- **Telegram bot** — full remote control: run, calibrate, set prompt, manage users, get notifications
-- **Background mode** — prevents idle sleep, monitors network, retries missed windows on reconnect
+- **Adaptive scheduling** — maximizes useful quota windows and balances partial edge windows
+- **Server observation** — runs invisible `/usage` checks before decisions and replans around real resets
+- **Safe anchors** — fixed, tool-free Haiku ping; never runs the configured task prompt
+- **Telegram bot** — work-hours control, usage sync, plan preview, allowlists, and notifications
+- **Background mode** — prevents idle sleep, monitors network, and never replays stale anchors after wake
 - **Atomic releases** — every install is immutable; rollback to any healthy local release in one command
 - **Zero runtime deps** — backend runs on Python stdlib only; no pip install at runtime
 
@@ -71,14 +73,14 @@ scripts/uninstall-macos.sh --purge  # removes everything
 
 | Category | Commands |
 |----------|----------|
-| **Status** | `/status` `/usage` `/schedule` `/health` `/diagnose` `/logs` |
+| **Status** | `/status` `/usage` `/sync_usage` `/schedule` `/health` `/diagnose` `/logs` |
 | **Automation** | `/run` `/dryrun` `/automation_on` `/automation_off` |
 | **Sleep** | `/sleep_on` `/sleep_off` |
-| **Calibration** | `/calibrate_5h HH:MM` `/calibrate_weekly YYYY-MM-DD HH:MM` |
+| **Planning** | `/workhours HH:MM HH:MM` `/calibrate_5h HH:MM` `/calibrate_weekly YYYY-MM-DD HH:MM` |
 | **Settings** | `/setmodel` `/setprompt` `/settimezone` |
 | **Users** | `/users` `/adduser <id>` `/removeuser <id>` |
 
-`/usage` starts Claude Code in a short-lived, app-owned pseudo-terminal (PTY), waits for the real interactive prompt, runs `/usage`, validates the returned subscription limits, and exits. The PTY is completely invisible: it never opens Terminal/iTerm, a window, or a tab, and no macOS Terminal Automation permission is needed. Run `claude auth login` once from your own shell before using this command; interactive authentication is intentionally never automated.
+`/usage` and `/sync_usage` start Claude Code in a short-lived, app-owned pseudo-terminal (PTY), run the public `/usage` command, parse the five-hour and weekly percentages/reset times, and exit. The PTY is completely invisible: it never opens Terminal/iTerm, changes `~/.claude/settings.json`, installs a status line, or uses a private OAuth endpoint. Run `claude auth login` once from your own shell before using these commands.
 
 All destructive actions (`/run`, `/setprompt`) require an inline confirmation tied to the originating user and chat. Polling offset is written atomically; a file lock prevents duplicate bot instances.
 
@@ -97,7 +99,8 @@ python3 -m claude_starter --home <dir> --json <command> [args]
 | `run` | Execute Claude with the configured prompt |
 | `calibrate` | Set window anchor (`--window-type five_hour\|weekly --anchor ISO`) |
 | `config` | Read / patch config (`get`, `set`, `patch-stdin`) |
-| `schedule` | Advance windows, record network state |
+| `schedule` | Show the adaptive plan; `--tick` is the background decision entry point |
+| `anchor` | Internal fixed Haiku quota-window ping (not a normal task run) |
 | `health` | Health report |
 | `telegram-bot` | Start the Telegram polling bot |
 | `service` | Manage launchd services (`start`, `stop`, `restart`) |
@@ -126,9 +129,10 @@ Up to 5 releases are kept by default.
 When **Background Mode** is enabled:
 
 - An `IOPMAssertion` prevents idle system sleep
-- Network transitions are monitored via `SCNetworkReachability`
-- If a window was missed while offline, it runs once on reconnect
-- `calibration_needed` is set automatically when windows are missed
+- Network transitions are monitored via `NWPathMonitor`
+- The helper calls only the locked, idempotent `schedule --tick` backend decision
+- Missed actions are expired; after wake/reconnect the remaining day is replanned
+- Weekly exhaustion and persistent observation/anchor failures are deduplicated notifications
 
 > Lid-close sleep on MacBooks is enforced by macOS and cannot be prevented without an external display connected.
 

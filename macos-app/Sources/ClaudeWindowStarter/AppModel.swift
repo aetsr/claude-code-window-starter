@@ -42,6 +42,10 @@ final class AppModel: ObservableObject {
     @Published var weeklyAnchorDate = Date()
     @Published var fiveHourIsCalibrated = false
     @Published var weeklyIsCalibrated = false
+    @Published var observedResetText = "Henüz gözlenmedi"
+    @Published var usageSourceText = "Kaynak yok"
+    @Published var todayAnchorPreview = "Bugün anchor yok"
+    @Published var adaptiveConfidence = "planned"
 
     private(set) var isSavingBackground = false
     private let backend = BackendClient()
@@ -139,7 +143,15 @@ final class AppModel: ObservableObject {
             "prompt": settings.prompt,
             "timeout_seconds": settings.timeout,
             "windows": [
-                "five_hour": ["enabled": settings.fiveHourEnabled],
+                "five_hour": [
+                    "enabled": settings.fiveHourEnabled,
+                    "mode": settings.fiveHourMode,
+                    "busy_start_local": settings.busyStartLocal,
+                    "busy_end_local": settings.busyEndLocal,
+                    "active_weekdays": settings.activeWeekdays,
+                    "strategy": settings.fiveHourStrategy,
+                    "reset_grace_seconds": settings.resetGraceSeconds,
+                ],
                 "weekly": ["enabled": settings.weeklyEnabled],
             ],
             "telegram": [
@@ -238,6 +250,22 @@ final class AppModel: ObservableObject {
 
     func calibrateWindow(_ windowType: String) {
         saveWindowAnchor(windowType)
+    }
+
+    func syncUsage() {
+        busy = true
+        lastError = nil
+        Task {
+            defer { busy = false }
+            do {
+                _ = try await backend.command(arguments: ["usage"])
+                await refreshStatus(silent: true)
+                statusText = "Kullanım ve adaptif plan senkronize edildi."
+            } catch {
+                lastError = error.localizedDescription
+                statusText = error.localizedDescription
+            }
+        }
     }
 
     func pairTelegram() {
@@ -385,6 +413,33 @@ final class AppModel: ObservableObject {
             parseWindowStatus("five_hour", windows["five_hour"])
             parseWindowStatus("weekly", windows["weekly"])
         }
+        if case .object(let schedule)? = object["schedule"] {
+            if case .string(let value)? = schedule["confidence"] { adaptiveConfidence = value }
+            if case .string(let source)? = schedule["usage_source"] {
+                usageSourceText = source
+                if case .string(let captured)? = schedule["usage_captured_at"],
+                   let date = parseISO(captured) {
+                    usageSourceText += " · \(formatDateTime(date))"
+                }
+            }
+            if case .object(let observed)? = schedule["observed_window"],
+               case .string(let reset)? = observed["resets_at"],
+               let date = parseISO(reset) {
+                observedResetText = formatDateTime(date)
+            }
+            if case .array(let actions)? = schedule["today_actions"] {
+                let previews = actions.compactMap { value -> String? in
+                    guard case .object(let action) = value,
+                          case .string(let scheduled)? = action["scheduled_at"],
+                          let date = parseISO(scheduled) else { return nil }
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "HH:mm"
+                    formatter.timeZone = TimeZone(identifier: settings.timezone)
+                    return formatter.string(from: date)
+                }
+                todayAnchorPreview = previews.isEmpty ? "Bugün anchor yok" : previews.joined(separator: " → ")
+            }
+        }
 
         if case .object(let health)? = object["health"], case .object(let checks)? = health["checks"] {
             if case .object(let background)? = checks["background"] {
@@ -493,6 +548,7 @@ final class AppModel: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
+        formatter.timeZone = TimeZone(identifier: settings.timezone)
         return formatter.string(from: date)
     }
 
@@ -509,6 +565,17 @@ final class AppModel: ObservableObject {
         if case .object(let windows)? = object["windows"] {
             if case .object(let fiveHour)? = windows["five_hour"] {
                 if case .bool(let value)? = fiveHour["enabled"] { settings.fiveHourEnabled = value }
+                if case .string(let value)? = fiveHour["mode"] { settings.fiveHourMode = value }
+                if case .string(let value)? = fiveHour["busy_start_local"] { settings.busyStartLocal = value }
+                if case .string(let value)? = fiveHour["busy_end_local"] { settings.busyEndLocal = value }
+                if case .array(let values)? = fiveHour["active_weekdays"] {
+                    settings.activeWeekdays = values.compactMap {
+                        if case .number(let value) = $0 { return Int(value) }
+                        return nil
+                    }
+                }
+                if case .string(let value)? = fiveHour["strategy"] { settings.fiveHourStrategy = value }
+                if case .number(let value)? = fiveHour["reset_grace_seconds"] { settings.resetGraceSeconds = Int(value) }
                 if case .string(let value)? = fiveHour["anchor_iso"] {
                     settings.fiveHourAnchorISO = value
                     if !value.isEmpty { fiveHourIsCalibrated = true }

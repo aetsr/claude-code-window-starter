@@ -119,46 +119,61 @@ struct ContentView: View {
                     }
                 }
 
-                // 5-hour calibration
-                calibrationCard(
-                    title: "5-Hour Limit",
-                    icon: "clock.fill",
-                    isEnabled: $model.settings.fiveHourEnabled,
-                    isCalibrated: model.fiveHourIsCalibrated,
-                    countdown: model.fiveHourCountdown,
-                    nextRunText: model.fiveHourNextRunText,
-                    lastResult: model.fiveHourLastResultText,
-                    calibrationNeeded: model.fiveHourCalibrationNeeded,
-                    calibrationError: model.fiveHourCalibrationError
-                ) {
-                    // Time-remaining input for 5-hour
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(model.fiveHourIsCalibrated ? "Update remaining time" : "How much time is left right now?")
-                            .font(.caption).foregroundStyle(.secondary)
-                        HStack(spacing: 10) {
-                            HStack(spacing: 4) {
-                                TextField("", value: $model.fiveHourRemainingHours, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 44)
-                                    .multilineTextAlignment(.center)
-                                Stepper("", value: $model.fiveHourRemainingHours, in: 0...4).labelsHidden()
-                                Text("h").font(.caption).foregroundStyle(.secondary)
-                            }
-                            HStack(spacing: 4) {
-                                TextField("", value: $model.fiveHourRemainingMinutes, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 44)
-                                    .multilineTextAlignment(.center)
-                                Stepper("", value: $model.fiveHourRemainingMinutes, in: 0...59).labelsHidden()
-                                Text("m").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button(model.fiveHourIsCalibrated ? "Update" : "Save") {
-                                model.saveWindowAnchor("five_hour")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.busy)
+                // Adaptive five-hour planner
+                settingsCard {
+                    HStack {
+                        Label("Dinamik 5 Saat Planlayıcısı", systemImage: "clock.arrow.2.circlepath")
+                            .font(.subheadline).fontWeight(.semibold)
+                        Spacer()
+                        Toggle("", isOn: $model.settings.fiveHourEnabled).labelsHidden()
+                    }
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Yoğun başlangıç").font(.caption).foregroundStyle(.secondary)
+                            TextField("08:00", text: $model.settings.busyStartLocal)
+                                .textFieldStyle(.roundedBorder).frame(width: 90)
                         }
+                        Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Yoğun bitiş").font(.caption).foregroundStyle(.secondary)
+                            TextField("17:00", text: $model.settings.busyEndLocal)
+                                .textFieldStyle(.roundedBorder).frame(width: 90)
+                        }
+                        Spacer()
+                        Button("Kaydet") {
+                            model.settings.fiveHourMode = "adaptive"
+                            model.saveConfiguration()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    Text("Hafta içi · Maksimum kota")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Divider()
+                    LabeledContent("Bugünkü anchorlar", value: model.todayAnchorPreview)
+                    LabeledContent("Gözlenen gerçek reset", value: model.observedResetText)
+                    LabeledContent("Kaynak / tazelik", value: model.usageSourceText)
+                    LabeledContent("Plan güveni", value: model.adaptiveConfidence)
+                    HStack {
+                        Button("Şimdi senkronize et") { model.syncUsage() }
+                            .disabled(model.busy)
+                        Spacer()
+                    }
+                    DisclosureGroup("Manuel override") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Claude penceresindeki kalan süreyi elle girerek sabit anchor kullanın.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Stepper("\(model.fiveHourRemainingHours) sa", value: $model.fiveHourRemainingHours, in: 0...4)
+                                Stepper("\(model.fiveHourRemainingMinutes) dk", value: $model.fiveHourRemainingMinutes, in: 0...59)
+                                Spacer()
+                                Button("Manuel ayarla") {
+                                    model.settings.fiveHourMode = "manual"
+                                    model.saveConfiguration()
+                                    model.saveWindowAnchor("five_hour")
+                                }
+                            }
+                        }
+                        .padding(.top, 6)
                     }
                 }
 

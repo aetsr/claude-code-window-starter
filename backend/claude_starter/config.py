@@ -3,17 +3,16 @@ from __future__ import annotations
 import copy
 import re
 from datetime import datetime
-
-from .windows import _parse_iso
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import AppError, ErrorCode
 from .io_utils import atomic_write_json, read_json
 from .paths import AppPaths
+from .windows import _parse_iso
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "enabled": False,
     "background_enabled": False,
     "timezone": "Europe/Istanbul",
@@ -24,6 +23,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "windows": {
         "five_hour": {
             "enabled": True,
+            "mode": "adaptive",
+            "busy_start_local": "08:00",
+            "busy_end_local": "17:00",
+            "active_weekdays": [1, 2, 3, 4, 5],
+            "strategy": "maximize_quota",
+            "reset_grace_seconds": 180,
+            # Retained as the explicit manual-calibration fallback.
             "anchor_iso": None,
             "interval_minutes": 303,  # 5 hours 3 minutes
         },
@@ -89,23 +95,41 @@ def _strip_unknown(supplied: dict[str, Any], expected: dict[str, Any]) -> dict[s
 
 
 def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
-    """Migrate config from v1→v2→v3."""
+    """Migrate config from v1 through v4 without enabling new automation."""
     raw_version = supplied.get("schema_version", 1)
     if isinstance(raw_version, int | str) and str(raw_version).isdigit():
         version: Any = int(raw_version)
     else:
         version = raw_version
 
-    # v3 is current
-    if version == 3:
+    if version == 4:
         normalized = copy.deepcopy(supplied)
-        normalized["schema_version"] = 3
+        normalized["schema_version"] = 4
         return normalized
+
+    # Existing v3 installations keep their fixed anchor behavior. Users can
+    # opt into adaptive mode explicitly from the app, CLI, or Telegram.
+    if version == 3:
+        migrated_v3 = copy.deepcopy(supplied)
+        migrated_v3["schema_version"] = 4
+        windows = migrated_v3.setdefault("windows", {})
+        five_hour = windows.setdefault("five_hour", {})
+        five_hour.update(
+            {
+                "mode": "manual",
+                "busy_start_local": "08:00",
+                "busy_end_local": "17:00",
+                "active_weekdays": [1, 2, 3, 4, 5],
+                "strategy": "maximize_quota",
+                "reset_grace_seconds": 180,
+            }
+        )
+        return migrated_v3
 
     # v2→v3: Remove old automation fields, add windows section
     if version == 2:
         migrated_v2 = copy.deepcopy(supplied)
-        migrated_v2["schema_version"] = 3
+        migrated_v2["schema_version"] = 4
         # Remove deprecated v2 fields
         migrated_v2.pop("schedule_time", None)
         migrated_v2.pop("automation_mode", None)
@@ -117,6 +141,12 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
             migrated_v2["windows"] = {
                 "five_hour": {
                     "enabled": True,
+                    "mode": "manual",
+                    "busy_start_local": "08:00",
+                    "busy_end_local": "17:00",
+                    "active_weekdays": [1, 2, 3, 4, 5],
+                    "strategy": "maximize_quota",
+                    "reset_grace_seconds": 180,
                     "anchor_iso": None,
                     "interval_minutes": 303,
                 },
@@ -147,11 +177,17 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
             "telegram",
         }
     }
-    migrated["schema_version"] = 3
+    migrated["schema_version"] = 4
     migrated["background_enabled"] = False
     migrated["windows"] = {
         "five_hour": {
             "enabled": True,
+            "mode": "manual",
+            "busy_start_local": "08:00",
+            "busy_end_local": "17:00",
+            "active_weekdays": [1, 2, 3, 4, 5],
+            "strategy": "maximize_quota",
+            "reset_grace_seconds": 180,
             "anchor_iso": None,
             "interval_minutes": 303,
         },
@@ -169,7 +205,7 @@ def migrate_config(supplied: dict[str, Any]) -> dict[str, Any]:
 
 def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown(config, DEFAULT_CONFIG)
-    if config.get("schema_version") != 3:
+    if config.get("schema_version") != 4:
         raise AppError(ErrorCode.CONFIG_INVALID, "Unsupported config schema_version")
 
     # Validate timezone
@@ -263,11 +299,11 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
                     )
                 try:
                     _parse_iso(anchor)
-                except ValueError:
+                except ValueError as exc:
                     raise AppError(
                         ErrorCode.CONFIG_INVALID,
                         f"windows.{wtype}.anchor_iso must be a valid ISO datetime",
-                    )
+                    ) from exc
 
             # interval_minutes must be positive integer
             if type(interval) is not int or interval <= 0:
@@ -276,28 +312,82 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
                     f"windows.{wtype}.interval_minutes must be positive integer",
                 )
 
+    five_hour = windows["five_hour"]
+    if five_hour.get("mode") not in {"adaptive", "manual"}:
+        raise AppError(
+            ErrorCode.CONFIG_INVALID, "windows.five_hour.mode must be adaptive or manual"
+        )
+    if five_hour.get("strategy") != "maximize_quota":
+        raise AppError(
+            ErrorCode.CONFIG_INVALID,
+            "windows.five_hour.strategy must be maximize_quota",
+        )
+    for field in ("busy_start_local", "busy_end_local"):
+        value = five_hour.get(field)
+        if not isinstance(value, str) or re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) is None:
+            raise AppError(ErrorCode.CONFIG_INVALID, f"windows.five_hour.{field} must be HH:MM")
+    start_minutes = _time_minutes(five_hour["busy_start_local"])
+    end_minutes = _time_minutes(five_hour["busy_end_local"])
+    if start_minutes >= end_minutes:
+        raise AppError(
+            ErrorCode.CONFIG_INVALID,
+            "busy_start_local must be before busy_end_local; overnight periods are unsupported",
+        )
+    weekdays = five_hour.get("active_weekdays")
+    if (
+        not isinstance(weekdays, list)
+        or not weekdays
+        or any(type(day) is not int or day < 1 or day > 7 for day in weekdays)
+        or len(set(weekdays)) != len(weekdays)
+    ):
+        raise AppError(
+            ErrorCode.CONFIG_INVALID,
+            "windows.five_hour.active_weekdays must contain unique ISO weekdays 1 through 7",
+        )
+    grace = five_hour.get("reset_grace_seconds")
+    if type(grace) is not int or not 0 <= grace <= 3600:
+        raise AppError(
+            ErrorCode.CONFIG_INVALID,
+            "windows.five_hour.reset_grace_seconds must be between 0 and 3600",
+        )
+
     return config
 
 
 def load_config(paths: AppPaths, *, create: bool = False) -> dict[str, Any]:
+    exists = paths.config_file.exists()
     supplied = read_json(paths.config_file, {})
     if not isinstance(supplied, dict):
         raise AppError(ErrorCode.CONFIG_INVALID, "Config root must be an object")
-    migrated = migrate_config(supplied)
+    # A missing file is a genuinely new installation and receives adaptive
+    # defaults. An existing v1-v3 document is migrated conservatively.
+    migrated = migrate_config(supplied) if exists else {}
     # Strip unknown fields when loading from disk (they may come from an older app version).
     # save_config still validates strictly via validate_config → _reject_unknown.
     migrated = _strip_unknown(migrated, DEFAULT_CONFIG)
     config = validate_config(_merge(DEFAULT_CONFIG, migrated))
-    if create and not paths.config_file.exists():
+    if create and not exists:
         save_config(paths, config)
-    elif paths.config_file.exists() and supplied.get("schema_version") != 3:
+    elif exists and supplied.get("schema_version") != 4:
         save_config(paths, config)
     return config
 
 
 def save_config(paths: AppPaths, config: dict[str, Any]) -> None:
-    validate_config(config)
-    atomic_write_json(paths.config_file, config)
+    # Accept the v3-shaped dictionaries used by existing local integrations,
+    # but persist only the complete v4 contract. A missing mode means the
+    # caller intended the former fixed-anchor behavior.
+    raw_version = config.get("schema_version", 4)
+    if str(raw_version) not in {"3", "4"}:
+        raise AppError(ErrorCode.CONFIG_INVALID, "Unsupported config schema_version")
+    supplied = migrate_config(config) if str(raw_version) == "3" else config
+    supplied_five_hour = supplied.get("windows", {}).get("five_hour", {})
+    normalized = _merge(DEFAULT_CONFIG, supplied)
+    if isinstance(supplied_five_hour, dict) and "mode" not in supplied_five_hour:
+        normalized["windows"]["five_hour"]["mode"] = "manual"
+    normalized["schema_version"] = 4
+    validate_config(normalized)
+    atomic_write_json(paths.config_file, normalized)
 
 
 def set_config_value(paths: AppPaths, dotted_key: str, value: Any) -> dict[str, Any]:
@@ -318,3 +408,8 @@ def set_config_value(paths: AppPaths, dotted_key: str, value: Any) -> dict[str, 
 
 def local_now(config: dict[str, Any]) -> datetime:
     return datetime.now(ZoneInfo(config["timezone"]))
+
+
+def _time_minutes(value: str) -> int:
+    hours, minutes = value.split(":", 1)
+    return int(hours) * 60 + int(minutes)

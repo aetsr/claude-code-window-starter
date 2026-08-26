@@ -54,7 +54,9 @@ def send_mac_notification(title: str, body: str) -> None:
     try:
         subprocess.run(
             ["osascript", "-e", f'display notification "{safe_body}" with title "{safe_title}"'],
-            timeout=5, check=False, capture_output=True,
+            timeout=5,
+            check=False,
+            capture_output=True,
         )
-    except Exception:
-        pass
+    except OSError:
+        return

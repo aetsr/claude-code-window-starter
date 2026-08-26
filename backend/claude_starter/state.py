@@ -10,12 +10,16 @@ from .locks import FileLock
 from .paths import AppPaths
 
 DEFAULT_STATE: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "last_run": None,
     "telegram_offset": 0,
     "telegram_confirmations": {},
     "telegram_rate_limits": {},
     "notification_queue": [],
+    "notification_dedup": {},
+    "usage_observation": None,
+    "adaptive_plan": None,
+    "schedule_action_results": {},
     # Five-hour window state
     "five_hour_next_run_at": None,
     "five_hour_last_triggered_at": None,
@@ -40,17 +44,17 @@ def load_state(paths: AppPaths) -> dict[str, Any]:
         version: Any = int(raw_version)
     else:
         version = raw_version
-    if state and version not in {1, 2, 3}:
+    if state and version not in {1, 2, 3, 4}:
         raise AppError(ErrorCode.STATE_WRITE_FAILED, "Unsupported or invalid state file")
 
     # Deep-copy DEFAULT_STATE so that mutable nested values (e.g. telegram_rate_limits)
     # are never shared between callers, preventing cross-call or cross-test mutation.
     result: dict[str, Any] = copy.deepcopy(DEFAULT_STATE)
     result.update(state)
-    result["schema_version"] = 3
+    result["schema_version"] = 4
 
     # Migrate v1→v3 or v2→v3 (remove old automation fields)
-    if version in {1, 2}:
+    if version in {1, 2, 3}:
         # Remove deprecated fields from old schema
         result.pop("last_automatic_date", None)
         result.pop("automatic_blocked", None)
@@ -66,7 +70,7 @@ def load_state(paths: AppPaths) -> dict[str, Any]:
 
 
 def save_state(paths: AppPaths, state: dict[str, Any]) -> None:
-    state = {**DEFAULT_STATE, **state, "schema_version": 3}
+    state = {**DEFAULT_STATE, **state, "schema_version": 4}
     atomic_write_json(paths.state_file, state)
 
 

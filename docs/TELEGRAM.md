@@ -11,6 +11,8 @@ The bot uses long polling and does not open any inbound port. The channel is a n
 
 Execution and prompt changes require a confirmation nonce. The token is never shown again or logged.
 
-`/usage` sends a typing indicator, starts Claude Code in an invisible, app-owned pseudo-terminal (PTY), waits for the ready prompt, validates the real session/weekly usage block, and exits the child process. It never launches Terminal or iTerm and needs no macOS Terminal Automation permission. The result is sent as plain text so Claude output cannot break Telegram Markdown entities.
+`/workhours 08:00 17:00` enables the adaptive weekday/max-quota plan. `/schedule` shows the busy period, today's anchors, observed reset, source confidence, and next action. `/sync_usage` refreshes the real server observation immediately.
+
+`/usage` and `/sync_usage` send a typing indicator, start Claude Code in an invisible, app-owned pseudo-terminal (PTY), validate the real five-hour/weekly usage block, and exit the child process. They never launch Terminal or iTerm and need no macOS Terminal Automation permission. No private OAuth endpoint, settings-file edit, or statusLine configuration is used.
 
 Before the first `/usage` request, run `claude auth login` once interactively on the Mac. Login is intentionally not automated. Authentication, lock contention, unsupported `/usage`, empty output, and timeouts are returned as short Turkish messages. The polling worker checks its Swift supervisor before and after each approximately 10-second long poll, so an old release exits promptly after an upgrade.

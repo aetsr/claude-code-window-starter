@@ -10,11 +10,11 @@ All datetime computations use UTC for reliability across timezone/DST boundaries
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 
-class WindowType(StrEnum):
+class WindowType(str, Enum):
     FIVE_HOUR = "five_hour"
     WEEKLY = "weekly"
 
@@ -24,9 +24,7 @@ def _parse_iso(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def next_window_after(
-    anchor: datetime, interval: timedelta, now: datetime
-) -> datetime:
+def next_window_after(anchor: datetime, interval: timedelta, now: datetime) -> datetime:
     """Calculate the next window start time after 'now'.
 
     Args:
@@ -44,9 +42,7 @@ def next_window_after(
     return anchor + (n + 1) * interval
 
 
-def current_window_start(
-    anchor: datetime, interval: timedelta, now: datetime
-) -> datetime:
+def current_window_start(anchor: datetime, interval: timedelta, now: datetime) -> datetime:
     """Calculate the start time of the currently active window.
 
     Args:
@@ -97,7 +93,7 @@ def windows_due(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    due = []
+    due: list[str] = []
     windows_config = config.get("windows", {})
 
     for wtype in (WindowType.FIVE_HOUR, WindowType.WEEKLY):
@@ -114,23 +110,21 @@ def windows_due(
             try:
                 anchor = _parse_iso(w["anchor_iso"]).astimezone(timezone.utc)
                 if now >= anchor:
-                    due.append(wtype)
+                    due.append(wtype.value)
             except (ValueError, KeyError):
                 pass
         else:
             # Check if current time >= scheduled next run
             try:
                 if now >= _parse_iso(next_run):
-                    due.append(wtype)
+                    due.append(wtype.value)
             except ValueError:
                 pass
 
     return due
 
 
-def advance_window(
-    wtype: str, config: dict[str, Any], now: datetime | None = None
-) -> datetime:
+def advance_window(wtype: str, config: dict[str, Any], now: datetime | None = None) -> datetime:
     """Calculate the next run time after a successful trigger.
 
     Args:

@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -15,7 +14,6 @@ from claude_starter.claude import _build_args, _clean_environment, discover_clau
 from claude_starter.config import DEFAULT_CONFIG
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.paths import AppPaths
-from claude_starter.state import load_state
 
 FAKE = """#!{python}
 import json, sys, time
@@ -129,16 +127,21 @@ class ClaudeTests(unittest.TestCase):
 
     def test_clean_environment_passes_through_user_and_logname(self) -> None:
         config = self.config()
-        with mock.patch.dict(os.environ, {"USER": "testuser", "LOGNAME": "testuser", "TMPDIR": "/tmp/test"}):
+        test_temp = str(Path(tempfile.gettempdir()) / "test")
+        with mock.patch.dict(
+            os.environ, {"USER": "testuser", "LOGNAME": "testuser", "TMPDIR": test_temp}
+        ):
             env = _clean_environment(self.paths, config)
         self.assertEqual(env.get("USER"), "testuser")
         self.assertEqual(env.get("LOGNAME"), "testuser")
-        self.assertEqual(env.get("TMPDIR"), "/tmp/test")
+        self.assertEqual(env.get("TMPDIR"), test_temp)
         self.assertEqual(env.get("CLAUDE_CODE_SKIP_PROMPT_HISTORY"), "1")
 
     def test_clean_environment_excludes_prohibited_keys(self) -> None:
         config = self.config()
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_AUTH_TOKEN": "tok"}):
+        with mock.patch.dict(
+            os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_AUTH_TOKEN": "tok"}
+        ):
             env = _clean_environment(self.paths, config)
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", env)

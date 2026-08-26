@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "enabled": false,
   "background_enabled": false,
   "timezone": "Europe/Istanbul",
@@ -10,6 +10,12 @@
   "windows": {
     "five_hour": {
       "enabled": true,
+      "mode": "adaptive",
+      "busy_start_local": "08:00",
+      "busy_end_local": "17:00",
+      "active_weekdays": [1, 2, 3, 4, 5],
+      "strategy": "maximize_quota",
+      "reset_grace_seconds": 180,
       "anchor_iso": null,
       "interval_minutes": 303
     },

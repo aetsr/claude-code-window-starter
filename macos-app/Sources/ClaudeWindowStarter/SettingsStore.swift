@@ -1,12 +1,12 @@
 import Foundation
 
 enum SettingsStore {
-    private static let key = "client-settings-v2"
-    private static let legacyKey = "client-settings-v1"
+    private static let key = "client-settings-v3"
+    private static let legacyKeys = ["client-settings-v2", "client-settings-v1"]
 
     static func load(defaults: UserDefaults = .standard) -> ClientSettings {
         let decoder = JSONDecoder()
-        for key in [Self.key, Self.legacyKey] {
+        for key in [Self.key] + Self.legacyKeys {
             if let data = defaults.data(forKey: key), let settings = try? decoder.decode(ClientSettings.self, from: data) {
                 return settings
             }
@@ -20,6 +20,6 @@ enum SettingsStore {
 
     static func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: key)
-        defaults.removeObject(forKey: legacyKey)
+        for key in legacyKeys { defaults.removeObject(forKey: key) }
     }
 }

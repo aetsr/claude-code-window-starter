@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from claude_starter.config import DEFAULT_CONFIG, load_config, save_config
+from claude_starter.config import DEFAULT_CONFIG, load_config, save_config, validate_config
 from claude_starter.errors import AppError, ErrorCode
 from claude_starter.io_utils import atomic_write_json
 from claude_starter.locks import FileLock
 from claude_starter.paths import AppPaths
-from claude_starter.scheduler import windows_due, next_runs
+from claude_starter.scheduler import next_runs, windows_due
 from claude_starter.state import load_state, update_state
-from claude_starter.windows import advance_window, get_interval, current_window_start
+from claude_starter.windows import advance_window
 
 
 class ConfigStateTests(unittest.TestCase):
@@ -27,12 +28,13 @@ class ConfigStateTests(unittest.TestCase):
 
     def test_default_config_is_safe_and_created_atomically(self) -> None:
         config = load_config(self.paths, create=True)
-        self.assertEqual(config["schema_version"], 3)
+        self.assertEqual(config["schema_version"], 4)
         self.assertFalse(config["enabled"])
         self.assertFalse(config["background_enabled"])
         self.assertFalse(config["telegram"]["enabled"])
         self.assertIn("windows", config)
         self.assertIn("five_hour", config["windows"])
+        self.assertEqual(config["windows"]["five_hour"]["mode"], "adaptive")
         self.assertIn("weekly", config["windows"])
         self.assertEqual(self.paths.config_file.stat().st_mode & 0o777, 0o600)
 
@@ -44,7 +46,7 @@ class ConfigStateTests(unittest.TestCase):
         old["removed_target"] = "legacy"
         atomic_write_json(self.paths.config_file, old)
         value = load_config(self.paths)
-        self.assertEqual(value["schema_version"], 3)
+        self.assertEqual(value["schema_version"], 4)
         self.assertNotIn("automation_mode", value)
         self.assertNotIn("schedule_time", value)
         self.assertNotIn("removed_target", value)
@@ -54,16 +56,16 @@ class ConfigStateTests(unittest.TestCase):
         old["schema_version"] = 2
         atomic_write_json(self.paths.config_file, old)
         value = load_config(self.paths)
-        self.assertEqual(value["schema_version"], 3)
+        self.assertEqual(value["schema_version"], 4)
 
     def test_string_schema_versions_are_accepted(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["schema_version"] = "3"
         atomic_write_json(self.paths.config_file, config)
-        self.assertEqual(load_config(self.paths)["schema_version"], 3)
+        self.assertEqual(load_config(self.paths)["schema_version"], 4)
 
         atomic_write_json(self.paths.state_file, {"schema_version": "3"})
-        self.assertEqual(load_state(self.paths)["schema_version"], 3)
+        self.assertEqual(load_state(self.paths)["schema_version"], 4)
 
     def test_invalid_window_anchor_rejected(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
@@ -89,7 +91,7 @@ class ConfigStateTests(unittest.TestCase):
         }
         atomic_write_json(self.paths.state_file, old_state)
         state = load_state(self.paths)
-        self.assertEqual(state["schema_version"], 3)
+        self.assertEqual(state["schema_version"], 4)
         self.assertNotIn("usage_window", state)
         self.assertNotIn("next_window_run_at", state)
         self.assertNotIn("automatic_blocked", state)
@@ -102,10 +104,10 @@ class ConfigStateTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         state = update_state(
             self.paths,
-            lambda current: current.__setitem__("five_hour_next_run_at", now.isoformat())
+            lambda current: current.__setitem__("five_hour_next_run_at", now.isoformat()),
         )
         self.assertEqual(state["five_hour_next_run_at"], now.isoformat())
-        self.assertEqual(load_state(self.paths)["schema_version"], 3)
+        self.assertEqual(load_state(self.paths)["schema_version"], 4)
 
     def test_second_lock_is_rejected(self) -> None:
         with FileLock(self.paths.run_lock):
@@ -118,7 +120,6 @@ class ConfigStateTests(unittest.TestCase):
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["windows"]["five_hour"]["enabled"] = False
         config["windows"]["five_hour"]["anchor_iso"] = "2026-07-25T11:00:00+00:00"
-        now = datetime.now(timezone.utc)
         due = windows_due(self.paths, config)
         self.assertNotIn("five_hour", due)
 
@@ -126,7 +127,6 @@ class ConfigStateTests(unittest.TestCase):
         config = json.loads(json.dumps(DEFAULT_CONFIG))
         config["windows"]["five_hour"]["enabled"] = True
         config["windows"]["five_hour"]["anchor_iso"] = None
-        now = datetime.now(timezone.utc)
         due = windows_due(self.paths, config)
         self.assertNotIn("five_hour", due)
 
@@ -143,7 +143,7 @@ class ConfigStateTests(unittest.TestCase):
         loaded = load_config(self.paths)
         self.assertNotIn("removed_legacy_field", loaded)
         self.assertNotIn("legacy_notify_updates", loaded.get("telegram", {}))
-        self.assertEqual(loaded["schema_version"], 3)
+        self.assertEqual(loaded["schema_version"], 4)
 
     def test_save_config_still_rejects_unknown_fields(self) -> None:
         config = json.loads(json.dumps(DEFAULT_CONFIG))
@@ -162,7 +162,6 @@ class ConfigStateTests(unittest.TestCase):
         next_at = advance_window("five_hour", config, now)
 
         # 303 minutes from anchor = 5 hours 3 minutes
-        expected_interval = 303 * 60  # seconds
         expected = datetime(2026, 7, 25, 16, 3, 0, tzinfo=timezone.utc)
         self.assertEqual(next_at, expected)
 
@@ -179,9 +178,6 @@ class ConfigStateTests(unittest.TestCase):
 
     def test_validate_config_accepts_z_suffix_anchor_when_enabled(self) -> None:
         """validate_config must accept Z-suffix anchor_iso (Swift format) when window enabled."""
-        from claude_starter.config import validate_config
-        import copy
-
         config = copy.deepcopy(DEFAULT_CONFIG)
         config["windows"]["five_hour"]["enabled"] = True
         config["windows"]["five_hour"]["anchor_iso"] = "2026-07-25T18:43:00Z"
@@ -191,9 +187,6 @@ class ConfigStateTests(unittest.TestCase):
 
     def test_validate_config_accepts_z_suffix_anchor_when_disabled(self) -> None:
         """validate_config must accept Z-suffix anchor even when window is disabled."""
-        from claude_starter.config import validate_config
-        import copy
-
         config = copy.deepcopy(DEFAULT_CONFIG)
         config["windows"]["five_hour"]["enabled"] = False
         config["windows"]["five_hour"]["anchor_iso"] = "2026-07-25T18:43:00Z"
