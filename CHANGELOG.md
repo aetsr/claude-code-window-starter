@@ -5,6 +5,25 @@ All notable changes to Claude Window Starter are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-08-26
+
+### Added
+- **OAuth Usage API** — queries `api.anthropic.com/api/oauth/usage` directly for instant, reliable quota data (no PTY needed)
+- OAuth token auto-discovery from macOS Keychain (`Claude Code-credentials`)
+- Usage result caching (300 s) to avoid redundant API calls
+- Dual timezone display — primary Europe/Berlin with secondary Europe/Istanbul (e.g. `21:10 DE / 22:10 TR`)
+
+### Changed
+- Default timezone switched from Europe/Istanbul to Europe/Berlin
+- `query_usage()` now tries: cache → OAuth API → PTY fallback (was PTY-only)
+- Usage API uses `curl` subprocess to bypass Python SSL certificate issues on macOS
+- README rewritten with architecture diagram, feature table, and project structure
+
+### Fixed
+- "Şimdi Senkronize Et" (Sync Now) button no longer times out — OAuth API responds in <1 s
+- PTY startup fallback timer increased from 3 s to 6 s for trust dialog edge cases
+- Telegram bot messages now show both DE and TR times
+
 ## [2.1.0] — 2026-08-26
 
 ### Added
@@ -83,5 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Telegram bot with basic command support
 - Atomic release switching
 
+[2.2.0]: https://github.com/aetsr/claude-window-starter/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/aetsr/claude-window-starter/releases/tag/v2.1.0
 [2.0.0]: https://github.com/aetsr/claude-window-starter/releases/tag/v2.0.0
 [1.0.0]: https://github.com/aetsr/claude-window-starter/releases/tag/v1.0.0

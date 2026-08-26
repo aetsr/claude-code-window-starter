@@ -5,36 +5,44 @@
 **macOS menu bar app that maximizes your Claude Code subscription quota — with a Telegram bot, live usage tracking, and zero runtime dependencies.**
 
 [![CI](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-244%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-blue?logo=python&logoColor=white)](https://www.python.org)
 [![macOS](https://img.shields.io/badge/macOS-13%2B-black?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://github.com/astral-sh/ruff)
 [![Last commit](https://img.shields.io/github/last-commit/aetsr/claude-window-starter)](https://github.com/aetsr/claude-window-starter/commits/main)
+[![Release](https://img.shields.io/badge/release-v2.2.0-blue)](CHANGELOG.md)
 
 </div>
 
 ---
 
-## Overview
+## Why?
 
-Claude Window Starter automatically manages your Claude Code subscription's 5-hour and weekly quota windows so you get the most out of your plan during working hours.
+Claude Code Pro/Max subscriptions have a **5-hour rolling window** and a **weekly cap**. If you're not tracking when your quota resets, you waste time waiting — or worse, hit the limit mid-task.
+
+This app sits in your menu bar, reads your real quota from Anthropic's API in under 1 second, and schedules your coding sessions around the resets automatically.
+
+---
+
+## Overview
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Claude Window Starter                            DE/TR  │
 ├──────────────────────────────────────────────────────────┤
 │                                                          │
-│  5h Oturum   ████████░░░░░░░░░░░░  12%                  │
-│  Haftalık    ████████████░░░░░░░░  59%                  │
+│  5h Session  ████████░░░░░░░░░░░░  24%                  │
+│  Weekly      ████████████░░░░░░░░  60%                  │
 │                                                          │
-│  Sıfırlanma: 26.08 21:09 DE / 22:09 TR                 │
+│  Reset: 26.08 21:10 DE / 22:10 TR                       │
 │                                                          │
 │  ● Telegram Bot: Running                                 │
 │  ● Background:   Active                                  │
 │  ● Network:      Online                                  │
 │                                                          │
-│  [Şimdi Senkronize Et]  [Automation: ON]                │
+│  [Sync Now]                       [Automation: ON]       │
 └──────────────────────────────────────────────────────────┘
 ```
 
