@@ -14,7 +14,7 @@ PyYAML==6.0.3
 rich==15.0.0
 ruff==0.12.5
 setuptools==75.8.0
-stevedore==5.9.0
+stevedore==5.8.0
 tomli==2.2.1; python_version < "3.11"
 typing-extensions==4.16.0
 wheel==0.45.1
