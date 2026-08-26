@@ -99,6 +99,19 @@ class CLITests(unittest.TestCase):
             self.assertEqual(config["telegram"]["allowed_chat_ids"], [12345])
             self.assertEqual(load_state(paths)["telegram_offset"], 45)
 
+    def test_status_includes_telegram_worker_and_token_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(["--home", directory, "--json", "status"])
+            self.assertEqual(code, 0)
+            value = json.loads(output.getvalue())
+            data = value["data"]
+            self.assertIn("telegram_worker_running", data)
+            self.assertIn("telegram_token_available", data)
+            # Without a supervisor status file, worker should be False
+            self.assertFalse(data["telegram_worker_running"])
+
     def test_pairing_rejects_group_and_malformed_ids_without_crashing(self) -> None:
         updates = [
             {

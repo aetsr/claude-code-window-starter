@@ -22,10 +22,16 @@ class ReleaseWorkerHandoffTests(unittest.TestCase):
 
     def test_install_stops_old_supervisor_before_worker_handoff(self) -> None:
         install = (self.root / "scripts/install-macos.sh").read_text(encoding="utf-8")
-        bootout = 'launchctl bootout "$DOMAIN/$telegram_label"'
-        initial_handoff = "terminate_stale_telegram_worker\nfor plist"
+        # All existing jobs are booted out, then supervisors killed, then workers terminated,
+        # then fresh jobs bootstrapped, then one final legacy worker cleanup.
+        # Use the invocation lines (not the function definitions) for ordering checks.
+        bootout_loop = "done\nterminate_all_telegram_supervisors"
+        initial_handoff = "terminate_stale_telegram_worker\n"
         post_bootstrap_handoff = "terminate_stale_telegram_worker legacy"
-        self.assertLess(install.index(bootout), install.index(initial_handoff))
+        self.assertIn(bootout_loop, install)
+        self.assertLess(
+            install.index(bootout_loop), install.index(initial_handoff)
+        )
         self.assertGreater(
             install.index(post_bootstrap_handoff),
             install.index('launchctl bootstrap "$DOMAIN" "$AGENT_DIR/$label.plist"'),

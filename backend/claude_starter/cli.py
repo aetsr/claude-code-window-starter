@@ -148,6 +148,17 @@ def _status(paths: AppPaths) -> dict[str, Any]:
     except AppError:
         telegram_running = False
 
+    # Read the supervisor status file for accurate worker/token state.
+    from .health import _telegram_supervisor_status
+
+    tg_super = _telegram_supervisor_status(paths)
+    telegram_worker_running = bool(
+        telegram_running
+        and tg_super.get("supervisor_alive", False)
+        and tg_super.get("worker_running", False)
+    )
+    telegram_token_available = tg_super.get("token_available", None)
+
     adaptive = schedule_snapshot(paths, config, now=now)
     legacy_next = adaptive.get("next_action_at")
     return {
@@ -156,6 +167,8 @@ def _status(paths: AppPaths) -> dict[str, Any]:
         "timezone": config["timezone"],
         "telegram_enabled": config["telegram"]["enabled"],
         "telegram_service_running": telegram_running,
+        "telegram_worker_running": telegram_worker_running,
+        "telegram_token_available": telegram_token_available,
         "windows": windows_status,
         "schedule": adaptive,
         "next_run_at": legacy_next,

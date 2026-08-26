@@ -7,9 +7,18 @@ enum KeychainStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
+            kSecUseDataProtectionKeychain as String: true,
         ]
         SecItemDelete(query as CFDictionary)
+        // Also remove any legacy-keychain item so the old ACL-gated entry
+        // does not shadow the new data-protection-keychain one.
+        let legacyQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(legacyQuery as CFDictionary)
         var item = query
         item[kSecValueData as String] = Data(value.utf8)
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -23,7 +32,8 @@ enum KeychainStore {
             kSecAttrService as String: "com.claude-window-starter",
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseDataProtectionKeychain as String: true,
         ]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,

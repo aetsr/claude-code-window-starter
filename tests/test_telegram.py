@@ -576,6 +576,32 @@ class TelegramAPITests(unittest.TestCase):
         self.assertEqual(context.exception.code, ErrorCode.TELEGRAM_API_ERROR)
         self.assertTrue(context.exception.details["timeout"])
 
+    def test_long_poll_timeout_does_not_trigger_backoff(self) -> None:
+        """A long-poll timeout must return [] without raising, so the bot loop
+        immediately opens the next poll instead of entering a 5-second backoff."""
+        api = self._api()
+        timeout_error = AppError(
+            ErrorCode.TELEGRAM_API_ERROR,
+            "Telegram network request timed out",
+            {"timeout": True},
+        )
+        with mock.patch.object(api, "call", side_effect=timeout_error):
+            result = api.get_updates(0, timeout=10)
+        self.assertEqual(result, [])
+
+    def test_non_timeout_api_error_still_raises(self) -> None:
+        """Only timeout errors should be swallowed by get_updates; other API
+        errors must propagate so the bot can log and handle them."""
+        api = self._api()
+        network_error = AppError(
+            ErrorCode.TELEGRAM_API_ERROR,
+            "Telegram network request failed",
+            {"timeout": False},
+        )
+        with mock.patch.object(api, "call", side_effect=network_error):
+            with self.assertRaises(AppError):
+                api.get_updates(0, timeout=10)
+
 
 if __name__ == "__main__":
     unittest.main()

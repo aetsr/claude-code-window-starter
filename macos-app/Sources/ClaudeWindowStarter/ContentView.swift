@@ -3,6 +3,36 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var model: AppModel
 
+    private var telegramPillValue: String {
+        if !model.settings.telegramEnabled { return "Off" }
+        if model.telegramTokenAvailable == false { return "No Token" }
+        if model.telegramWorkerRunning { return "Running" }
+        if model.telegramBotRunning { return "Waiting" }
+        return "Stopped"
+    }
+
+    private var telegramPillColor: Color {
+        if !model.settings.telegramEnabled { return .secondary }
+        if model.telegramTokenAvailable == false { return .red }
+        if model.telegramWorkerRunning { return .green }
+        if model.telegramBotRunning { return .orange }
+        return .red
+    }
+
+    private var telegramDetailLabel: String {
+        if model.telegramTokenAvailable == false { return "No Token" }
+        if model.telegramWorkerRunning { return "Running" }
+        if model.telegramBotRunning { return "Supervisor only" }
+        return "Stopped"
+    }
+
+    private var telegramDetailDotColor: Color {
+        if model.telegramTokenAvailable == false { return .red }
+        if model.telegramWorkerRunning { return .green }
+        if model.telegramBotRunning { return .orange }
+        return .secondary
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -79,8 +109,8 @@ struct ContentView: View {
                            color: model.powerAssertion ? .blue : .secondary)
                 StatusPill(title: "Automation", value: model.settings.enabled ? "On" : "Off",
                            color: model.settings.enabled ? .green : .secondary)
-                StatusPill(title: "Telegram", value: model.telegramBotRunning ? "Running" : (model.settings.telegramEnabled ? "Waiting" : "Off"),
-                           color: model.telegramBotRunning ? .green : (model.settings.telegramEnabled ? .orange : .secondary))
+                StatusPill(title: "Telegram", value: telegramPillValue,
+                           color: telegramPillColor)
                 if model.automationBlocked {
                     StatusPill(title: "Action required", value: "!", color: .red)
                 }
@@ -255,21 +285,21 @@ struct ContentView: View {
                     HStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(model.telegramBotRunning ? Color.green.opacity(0.15) : Color.secondary.opacity(0.1))
+                                .fill(model.telegramWorkerRunning ? Color.green.opacity(0.15) : Color.secondary.opacity(0.1))
                                 .frame(width: 40, height: 40)
                             Image(systemName: "paperplane.fill")
-                                .foregroundStyle(model.telegramBotRunning ? .green : .secondary)
+                                .foregroundStyle(model.telegramWorkerRunning ? .green : .secondary)
                                 .font(.system(size: 18))
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Telegram Bot").font(.subheadline).fontWeight(.semibold)
                             HStack(spacing: 5) {
                                 Circle()
-                                    .fill(model.telegramBotRunning ? Color.green : Color.secondary)
+                                    .fill(telegramDetailDotColor)
                                     .frame(width: 6, height: 6)
-                                Text(model.telegramBotRunning ? "Running" : "Stopped")
+                                Text(telegramDetailLabel)
                                     .font(.caption)
-                                    .foregroundStyle(model.telegramBotRunning ? .green : .secondary)
+                                    .foregroundStyle(telegramDetailDotColor)
                             }
                         }
                         Spacer()
@@ -277,8 +307,13 @@ struct ContentView: View {
                     }
                     if model.settings.telegramEnabled {
                         Divider()
-                        Text("When the lid is closed, the bot continues running if sleep prevention is on.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        if model.telegramTokenAvailable == false {
+                            Text("Telegram token not found in Keychain. Enter it below to start the bot.")
+                                .font(.caption).foregroundStyle(.red)
+                        } else {
+                            Text("When the lid is closed, the bot continues running if sleep prevention is on.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
 

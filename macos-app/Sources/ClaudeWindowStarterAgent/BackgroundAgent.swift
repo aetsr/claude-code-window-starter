@@ -120,12 +120,30 @@ actor BackgroundAgent {
     }
 
     private func runTelegramSupervisor() async {
+        let runtimeDir = base.appending(path: "shared/runtime")
+        try? FileManager.default.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
+        let lockPath = runtimeDir.appending(path: "telegram_supervisor.lock").path
+        let lockFD = open(lockPath, O_CREAT | O_WRONLY, 0o600)
+        guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+            if lockFD >= 0 { close(lockFD) }
+            return
+        }
+        defer {
+            writeTelegramStatus(tokenAvailable: false, workerRunning: false)
+            flock(lockFD, LOCK_UN)
+            close(lockFD)
+        }
         while !Task.isCancelled {
             let config = readConfig()
             let enabled = (config["telegram"] as? [String: Any])?["enabled"] as? Bool ?? false
-            if enabled, let token = KeychainStore.load(account: "telegram_token") {
+            let token = KeychainStore.load(account: "telegram_token")
+            let tokenAvailable = token != nil
+            if enabled, let token {
+                writeTelegramStatus(tokenAvailable: true, workerRunning: true)
                 await runTelegram(token: token)
+                writeTelegramStatus(tokenAvailable: true, workerRunning: false)
             } else {
+                writeTelegramStatus(tokenAvailable: tokenAvailable, workerRunning: false)
                 try? await Task.sleep(for: .seconds(15))
             }
         }
@@ -155,6 +173,30 @@ actor BackgroundAgent {
             try? input.fileHandleForWriting.close()
         }
         try? await Task.sleep(for: .seconds(5))
+    }
+
+    private func writeTelegramStatus(tokenAvailable: Bool, workerRunning: Bool) {
+        let telegramStatusURL = base.appending(path: "shared/runtime/telegram_supervisor.json")
+        let payload: [String: Any] = [
+            "supervisor_pid": ProcessInfo.processInfo.processIdentifier,
+            "token_available": tokenAvailable,
+            "worker_running": workerRunning,
+            "checked_at": ISO8601DateFormatter().string(from: Date()),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else { return }
+        let directory = telegramStatusURL.deletingLastPathComponent()
+        let temporary = directory.appending(path: ".telegram-status-\(UUID().uuidString).tmp")
+        do {
+            try data.write(to: temporary, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            if FileManager.default.fileExists(atPath: telegramStatusURL.path) {
+                _ = try FileManager.default.replaceItemAt(telegramStatusURL, withItemAt: temporary, backupItemName: nil, options: .usingNewMetadataOnly)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: telegramStatusURL)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+        }
     }
 
     private func readConfig() -> [String: Any] {
@@ -296,6 +338,7 @@ enum KeychainStore {
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseDataProtectionKeychain as String: true,
         ]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,

@@ -98,18 +98,48 @@ terminate_stale_telegram_worker() {
   exit 1
 }
 
+terminate_all_telegram_supervisors() {
+  # Kill every ClaudeWindowStarterAgent running in telegram mode so only the
+  # freshly bootstrapped launchd job survives.  The supervisor lock file
+  # guarantees at most one instance, but stale processes from a previous
+  # install may still be alive.
+  local pids
+  pids="$(pgrep -f 'ClaudeWindowStarterAgent telegram' 2>/dev/null || true)"
+  for pid in $pids; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  if [[ -n "$pids" ]]; then
+    for _ in {1..10}; do
+      pids="$(pgrep -f 'ClaudeWindowStarterAgent telegram' 2>/dev/null || true)"
+      [[ -z "$pids" ]] && break
+      sleep 0.5
+    done
+    for pid in $pids; do
+      kill -KILL "$pid" 2>/dev/null || true
+    done
+  fi
+  rm -f "$BASE/shared/runtime/telegram_supervisor.lock"
+  rm -f "$BASE/shared/runtime/telegram_supervisor.json"
+}
+
 install -d -m 0755 "$AGENT_DIR"
 # Remove the pre-2.0 single-job agent so it cannot trigger a second scheduler.
 legacy_label="com.claude-window-starter"
 launchctl bootout "$DOMAIN/$legacy_label" >/dev/null 2>&1 || true
 rm -f "$AGENT_DIR/$legacy_label.plist"
-telegram_label="com.claude-window-starter.telegram"
-launchctl bootout "$DOMAIN/$telegram_label" >/dev/null 2>&1 || true
+
+# Bootout all managed jobs and kill all telegram supervisors/workers before
+# bootstrapping fresh instances.
+for plist in "$SOURCE_ROOT"/launchd/*.plist; do
+  label="$(basename "$plist" .plist)"
+  launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
+done
+terminate_all_telegram_supervisors
 terminate_stale_telegram_worker
+
 for plist in "$SOURCE_ROOT"/launchd/*.plist; do
   label="$(basename "$plist" .plist)"
   render_plist "$plist" "$label"
-  launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "$DOMAIN" "$AGENT_DIR/$label.plist"
 done
 # A KeepAlive restart can briefly race with the first bootstrap and start one

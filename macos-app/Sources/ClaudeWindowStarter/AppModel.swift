@@ -20,7 +20,9 @@ final class AppModel: ObservableObject {
     @Published var claudeAuthHint = ""
     @Published var telegramPairCode = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
     @Published var telegramBotRunning = false
+    @Published var telegramWorkerRunning = false
     @Published var telegramTokenConfigured = false
+    @Published var telegramTokenAvailable: Bool? = nil
     @Published var telegramUserList: [Int64] = []
     @Published var telegramChatList: [Int64] = []
     @Published var newTelegramUserID = ""
@@ -407,6 +409,8 @@ final class AppModel: ObservableObject {
         if case .bool(let value)? = object["background_enabled"] { settings.backgroundEnabled = value }
         if case .bool(let value)? = object["telegram_enabled"] { settings.telegramEnabled = value }
         if case .bool(let value)? = object["telegram_service_running"] { telegramBotRunning = value }
+        if case .bool(let value)? = object["telegram_worker_running"] { telegramWorkerRunning = value }
+        if case .bool(let value)? = object["telegram_token_available"] { telegramTokenAvailable = value }
 
         // Parse window status
         if case .object(let windows)? = object["windows"] {

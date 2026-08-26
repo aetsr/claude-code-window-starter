@@ -21,6 +21,21 @@ def _background_status(paths: AppPaths) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _telegram_supervisor_status(paths: AppPaths) -> dict[str, Any]:
+    """Read the telegram supervisor status file written by the Swift agent."""
+    value = read_json(paths.runtime_dir / "telegram_supervisor.json", {})
+    if not isinstance(value, dict):
+        return {}
+    supervisor_pid = value.get("supervisor_pid")
+    if isinstance(supervisor_pid, int) and supervisor_pid > 0:
+        try:
+            os.kill(supervisor_pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return {"supervisor_alive": False, **value}
+        return {"supervisor_alive": True, **value}
+    return value
+
+
 def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str, Any]:
     paths.ensure()
     config = load_config(paths, create=True)
@@ -29,6 +44,14 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
     operating_system = platform.system()
     architecture = platform.machine().lower()
     disk = shutil.disk_usage(paths.base)
+    telegram_cfg = config.get("telegram", {})
+    telegram_enabled = telegram_cfg.get("enabled", False)
+    tg_status = _telegram_supervisor_status(paths) if telegram_enabled else {}
+    tg_ok = True
+    if telegram_enabled:
+        tg_ok = tg_status.get("supervisor_alive", False) and tg_status.get(
+            "token_available", False
+        )
     checks: dict[str, Any] = {
         "operating_system": {"ok": operating_system == "Darwin", "value": operating_system},
         "architecture": {"ok": architecture in SUPPORTED_ARCHES, "value": architecture},
@@ -41,6 +64,7 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
         "state": {"ok": state.get("schema_version") == 4},
         "claude": {"ok": capabilities.executable is not None, **capabilities.public_dict()},
         "background": {"ok": True, **_background_status(paths)},
+        "telegram": {"ok": tg_ok, "enabled": telegram_enabled, **tg_status},
     }
     if include_services:
         checks["services"] = service_status()
