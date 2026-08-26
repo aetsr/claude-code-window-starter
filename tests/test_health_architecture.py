@@ -17,13 +17,17 @@ class ArchitectureTests(unittest.TestCase):
                 self.subTest(architecture=architecture),
                 tempfile.TemporaryDirectory() as directory,
             ):
-                with mock.patch("platform.machine", return_value=architecture):
+                with (
+                    mock.patch("platform.system", return_value="Darwin"),
+                    mock.patch("platform.machine", return_value=architecture),
+                ):
                     report = diagnose(AppPaths(Path(directory)))
                 self.assertEqual(report["environment"]["machine"], architecture)
 
     def test_unknown_architecture_stops_safely(self) -> None:
         with (
             tempfile.TemporaryDirectory() as directory,
+            mock.patch("platform.system", return_value="Darwin"),
             mock.patch("platform.machine", return_value="mips"),
         ):
             with self.assertRaises(AppError) as context:

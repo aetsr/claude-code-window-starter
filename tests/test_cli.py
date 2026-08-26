@@ -37,7 +37,12 @@ class CLITests(unittest.TestCase):
         # Test that manual run with window_type works even if automation is disabled
         with tempfile.TemporaryDirectory() as directory:
             output = io.StringIO()
-            with redirect_stdout(output):
+            capabilities = mock.Mock(executable="/usr/bin/true", prohibited_credentials=[])
+            capabilities.public_dict.return_value = {}
+            with (
+                mock.patch("claude_starter.claude.discover_claude", return_value=capabilities),
+                redirect_stdout(output),
+            ):
                 code = main(
                     [
                         "--home",
