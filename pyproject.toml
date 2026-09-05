@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-window-starter"
-version = "2.1.0"
+version = "2.2.0"
 description = "Claude Code 5-hour usage window scheduler and starter for macOS with reset and weekly quota tracking"
 readme = "README.md"
 requires-python = ">=3.10"
