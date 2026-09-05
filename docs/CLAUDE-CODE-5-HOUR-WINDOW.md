@@ -1,6 +1,6 @@
 # Claude Code 5-Hour Usage Window Starter and Scheduler
 
-Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around your working hours. This guide explains the problem it solves, how its window anchoring works, and what it does not do. Repository: <https://github.com/aetsr/claude-window-starter>.
+Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around your working hours. This guide explains the problem it solves, how its window anchoring works, and what it does not do. Repository: <https://github.com/aetsr/claude-code-window-starter>.
 
 ## The problem
 
@@ -43,14 +43,14 @@ A cron one-liner sends a fixed daily request and stops there. Claude Window Star
 Requires macOS 13+, Python 3.10+, Swift 6 toolchain, and signed-in Claude Code (`claude auth login`); no Anthropic API key needed. From a clean checkout:
 
 ```bash
-git clone https://github.com/aetsr/claude-window-starter.git
+git clone https://github.com/aetsr/claude-code-window-starter.git
 cd claude-window-starter
 claude auth login
 ./scripts/install-macos.sh
 ```
 
-Details, quick start, and uninstall: [README](../README.md#installation). No published binary download exists yet; releases are tracked in [RELEASING.md](RELEASING.md).
+Details, quick start, and uninstall: [README](../README.md#installation). Download installer ZIPs from [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases/latest).
 
 ## GitHub repository
 
-Source, issues, and docs: <https://github.com/aetsr/claude-window-starter>. Bug reports with reproducible usage-parsing, reset, or sleep/wake observations (credentials removed) are welcome — see [CONTRIBUTING](../CONTRIBUTING.md).
+Source, issues, and docs: <https://github.com/aetsr/claude-code-window-starter>. Bug reports with reproducible usage-parsing, reset, or sleep/wake observations (credentials removed) are welcome — see [CONTRIBUTING](../CONTRIBUTING.md).

@@ -2,9 +2,9 @@
 
 ## Current status
 
-Audit on 2026-09-05: GitHub returned no Releases. A local `v1.0.0` tag exists; a tag or dated changelog section does not establish a published binary release. Python, package metadata, installer and app report **2.1.0**. Previously the README/changelog implied **2.2.0** had shipped; its changes now sit under Unreleased until a deliberate version bump and tag.
+The first public release, **v2.2.0**, is published at [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases). Installer ZIPs are available for Apple Silicon (arm64) and Intel (x86_64). Each ZIP contains the compiled app, full Python backend, launchd templates, config, and install/uninstall/rollback scripts. The installer validates Python, stages a complete release atomically with journaled rollback, and registers LaunchAgents.
 
-The `.app` built by `build-macos-app.sh dist` is ad-hoc signed, contains Swift executables, and depends on `Application Support/ClaudeWindowStarter/current/.venv/bin/python`. It does not bundle Python/backend or bootstrap its LaunchAgents. Publishing it as a drag-and-drop app would fail on a clean Mac.
+The `.app` built by `build-macos-app.sh dist` alone is ad-hoc signed and depends on an installed backend. It is not a standalone drag-and-drop app. Use the installer ZIP or source installation.
 
 ## Automated draft artifacts
 
@@ -12,12 +12,12 @@ The `.app` built by `build-macos-app.sh dist` is ad-hoc signed, contains Swift e
 
 Artifacts:
 
+- `claude-code-window-starter-VERSION-macos-arm64-installer.zip`: complete installer for Apple Silicon Macs.
+- `claude-code-window-starter-VERSION-macos-x86_64-installer.zip`: complete installer for Intel Macs.
 - `claude-code-window-starter-VERSION-source.tar.gz`: tracked source; use source installation instructions.
-- `claude-code-window-starter-VERSION-macos-ARCH-app-preview.zip`: Swift-only development preview, not a complete installer.
-- Python wheel: backend only, not the full macOS app.
-- `SHA256SUMS`: verify after download with `shasum -a 256 -c SHA256SUMS` from the directory containing all assets.
+- `SHA256SUMS` and per-file `.sha256`: verify after download with `shasum -a 256 -c SHA256SUMS`.
 
-The initial workflow builds the `macos-15` runner's native architecture and labels it from `uname -m`. It does not claim a universal binary. Separate Intel verification is required before advertising Intel downloads. Use [the notes template](RELEASE_NOTES_TEMPLATE.md) before manually publishing a draft. A draft is not a downloadable public release.
+The workflow builds on `macos-15` (arm64) and `macos-15-intel` (x86_64) runners. Use [the notes template](RELEASE_NOTES_TEMPLATE.md) before manually publishing a draft.
 
 ## Versioning and release steps
 
@@ -25,13 +25,11 @@ Keep Semantic Versioning; do not invent a new v1.0.0. Before tagging, choose the
 
 Run `./scripts/build-local.sh` and CI quality checks on a clean committed revision. Review the resulting draft and checksums, then test a fresh Mac/account before publishing. Tag creation, pushing and publication are maintainer actions; none were performed by this audit.
 
-## What blocks a complete downloadable app
+## Remaining improvements
 
-1. Package the Python backend and a relocatable Python runtime, or provide a complete installer that validates an external Python and creates the backend/LaunchAgents. Copying a development virtualenv is not portable. Bundling Python is feasible, but requires architecture-specific runtime updates, license notices and signing all nested executable code.
-2. Fix shell installation staging and rollback: it currently marks the manifest healthy and switches `current` before the Swift build, and has no post-health rollback. Backend symlink rollback does not restore the app or restart all services onto the selected backend. Test failure recovery before claiming atomic upgrades.
-3. Review OAuth bearer headers in `curl` argv, broad Telegram Keychain ACLs, and changes to the usage endpoint before a broad launch. See [SECURITY.md](../SECURITY.md). No credential behavior was changed by the audit.
-4. Validate clean install, upgrade, uninstall, auth, cache behavior and sleep/wake on the claimed architectures/macOS versions. The interface is now English-only.
-5. Add Developer ID signing/notarization for a normal trusted public download, plus actual screenshots and release notes.
+1. Add Developer ID signing and notarization for a fully trusted public download (currently ad-hoc signed).
+2. Review OAuth bearer headers in `curl` argv before a broader launch. See [SECURITY.md](../SECURITY.md).
+3. Consider bundling a relocatable Python runtime to remove the external Python requirement.
 
 ## Signing/notarization structure to add after packaging
 

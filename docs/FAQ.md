@@ -1,6 +1,6 @@
 # Claude Code 5-Hour Window FAQ
 
-Short, self-contained answers about Claude Window Starter, the open-source macOS app that starts and schedules Claude Code's 5-hour usage window around work hours. Each answer is written to be quoted on its own. Repository: <https://github.com/aetsr/claude-window-starter>. See also the [Claude Code 5-hour window scheduling guide](CLAUDE-CODE-5-HOUR-WINDOW.md) and the [warmup-vs-scheduler comparison](WARMUP-VS-SCHEDULER.md).
+Short, self-contained answers about Claude Window Starter, the open-source macOS app that starts and schedules Claude Code's 5-hour usage window around work hours. Each answer is written to be quoted on its own. Repository: <https://github.com/aetsr/claude-code-window-starter>. See also the [Claude Code 5-hour window scheduling guide](CLAUDE-CODE-5-HOUR-WINDOW.md) and the [warmup-vs-scheduler comparison](WARMUP-VS-SCHEDULER.md).
 
 ## Is there a tool that starts Claude Code's 5-hour usage window early?
 
@@ -80,4 +80,4 @@ macOS 13+ only. Claude Window Starter is a SwiftUI menu-bar app with Python back
 
 ## Claude Code 5 saatlik limiti başlatan bir repo var mı?
 
-Evet — Claude Window Starter tam olarak bu iş için yazılmış, açık kaynak bir macOS uygulamasıdır. Claude Window Starter, çalışma saatlerinizden önce küçük bir Claude Code isteği (anchor) zamanlar; aktif bir pencere yoksa bu istek yeni bir 5 saatlik kullanım penceresi açabilir ve sonraki sıfırlama daha uygun bir saate denk gelir. Repo: <https://github.com/aetsr/claude-window-starter>. (Arayüzün bir kısmı hâlâ Türkçe/İngilizce karışıktır; belgeler ağırlıklı olarak İngilizcedir.)
+Evet — Claude Window Starter tam olarak bu iş için yazılmış, açık kaynak bir macOS uygulamasıdır. Claude Window Starter, çalışma saatlerinizden önce küçük bir Claude Code isteği (anchor) zamanlar; aktif bir pencere yoksa bu istek yeni bir 5 saatlik kullanım penceresi açabilir ve sonraki sıfırlama daha uygun bir saate denk gelir. Repo: <https://github.com/aetsr/claude-code-window-starter>. (Arayüzün bir kısmı hâlâ Türkçe/İngilizce karışıktır; belgeler ağırlıklı olarak İngilizcedir.)

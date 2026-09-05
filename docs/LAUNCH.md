@@ -1,6 +1,6 @@
 # Launch kit
 
-Ready-to-publish material for the Claude Window Starter launch. Do not announce a binary download until a complete installation package is published. Check each community's self-promotion rules, add genuine screenshots, and update the installation status before posting. These drafts have not been posted. Do not claim adoption numbers, endorsements, or guaranteed quota gains.
+Ready-to-publish material for the Claude Window Starter launch. v2.2.0 installer ZIPs (Apple Silicon and Intel) are available at [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases/latest). Check each community's self-promotion rules, add genuine screenshots, and update the installation status before posting. These drafts have not been posted. Do not claim adoption numbers, endorsements, or guaranteed quota gains.
 
 ## FINAL RECOMMENDED GITHUB ABOUT
 
@@ -65,7 +65,7 @@ What it doesn't do: no quota increase, no limit bypass, no server-side reset —
 
 Why not cron? A cron one-liner was my starting point. I wanted observed-reset replanning, sleep/offline expiry instead of backlog firing, quota visibility, and a UI in one place. The Mac must be awake and online at anchor times — this is not a wake alarm or cloud service.
 
-Current setup is a source install on macOS. Downloadable packaging is still being prepared. Feedback on real reset observations and sleep/wake behavior would be helpful.
+Install from [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases/latest) (installer ZIP for Apple Silicon or Intel) or from source. Feedback on real reset observations and sleep/wake behavior would be helpful.
 
 GitHub: https://github.com/aetsr/claude-code-window-starter
 
@@ -87,13 +87,13 @@ I built Claude Window Starter (open source, Apache 2.0) because Claude Code's 5-
 
 It's a macOS menu-bar app + Python backend. You configure work hours; it sends a minimal tool-free Haiku request a few hours before work to open a fresh window when none is active, then replans the day from the server-observed reset (skipping redundant requests). It also surfaces 5h/weekly percentages and countdowns, handles sleep/offline gaps by expiring stale actions, and has optional Telegram control.
 
-Technical notes: usage reads go cache → OAuth usage endpoint (existing Claude Code credential) → CLI `/usage` PTY fallback. No API key, no quota bypass, every request is normal subscription usage. Current install is from source (Python 3.10+, Swift 6); no signed binary yet. Happy to answer questions about the scheduling model and the usage-parsing edge cases.
+Technical notes: usage reads go cache → OAuth usage endpoint (existing Claude Code credential) → CLI `/usage` PTY fallback. No API key, no quota bypass, every request is normal subscription usage. Install from [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases/latest) (macOS 13+, Python 3.10+) or from source. Happy to answer questions about the scheduling model and the usage-parsing edge cases.
 
 https://github.com/aetsr/claude-code-window-starter
 
 ## X / Twitter posts
 
-1. I built a macOS scheduler for Claude Code's 5-hour window: early requests around work hours, reset tracking, weekly usage and optional Telegram control. Uses normal quota; no limit bypass. Source install today. https://github.com/aetsr/claude-code-window-starter
+1. I built a macOS scheduler for Claude Code's 5-hour window: early requests around work hours, reset tracking, weekly usage and optional Telegram control. Uses normal quota; no limit bypass. https://github.com/aetsr/claude-code-window-starter
 2. Claude Code's 5h reset kept landing mid-morning, so I automated my first request: open-source macOS app, work-hours-aware anchors, observed-reset replanning, menu-bar UI. What it can't do: move active windows or add quota. https://github.com/aetsr/claude-code-window-starter
 
 ## Before posting

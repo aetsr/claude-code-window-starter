@@ -1,6 +1,6 @@
 # Warmup Cron Job vs Claude Window Starter
 
-Target question: "Why not just use a Claude Code warmup cron job?" Short answer: a fixed cron warmup sends one blind request; Claude Window Starter plans a workday of requests and adapts them to the reset times Anthropic's servers actually report. Repository: <https://github.com/aetsr/claude-window-starter>.
+Target question: "Why not just use a Claude Code warmup cron job?" Short answer: a fixed cron warmup sends one blind request; Claude Window Starter plans a workday of requests and adapts them to the reset times Anthropic's servers actually report. Repository: <https://github.com/aetsr/claude-code-window-starter>.
 
 ## What a simple warmup does
 

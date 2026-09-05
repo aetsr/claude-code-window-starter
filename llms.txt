@@ -22,7 +22,7 @@ Schedule a small legitimate Claude Code request (anchor) before work so a fresh 
 - Backend: Python 3.10+ (stdlib only, no third-party dependencies)
 - UI: SwiftUI menu bar app + launchd background helper
 - License: Apache 2.0
-- Installation: source build (no published binary yet)
+- Installation: installer ZIP from [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases/latest) or source build
 
 ## Docs
 
@@ -36,7 +36,7 @@ Schedule a small legitimate Claude Code request (anchor) before work so a fresh 
 
 ## Installation
 
-macOS 13+, Python 3.10+, Swift 6 build tools, signed-in Claude Code (`claude auth login`). No Anthropic API key. `git clone ... && ./scripts/install-macos.sh`. No published binary yet.
+Download the installer ZIP from [GitHub Releases](https://github.com/aetsr/claude-code-window-starter/releases/latest) for Apple Silicon or Intel. Unzip, double-click `Install.command`. Requires macOS 13+, Python 3.10–3.13, and signed-in Claude Code (`claude auth login`). No Anthropic API key. Source installation is also available: `git clone ... && ./scripts/install-macos.sh` (additionally requires Swift 6 build tools).
 
 ## Limitations
 

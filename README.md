@@ -56,17 +56,25 @@ early request     work starts  next request next request work ends
 
 ## Installation
 
-### Recommended installation today: from source
+### Download the latest release (recommended)
 
-There is currently no published, ready-to-install macOS download. The installer builds the app and installs its backend and launchd helpers in one command. A standalone `.app` build is not a complete installation. See [release readiness](docs/RELEASING.md).
+**[Download Claude Window Starter v2.2.0](https://github.com/aetsr/claude-code-window-starter/releases/latest)** — installer ZIPs for Apple Silicon and Intel.
+
+1. Download the `.zip` for your architecture.
+2. Unzip and double-click `Install.command`, or run `./scripts/install-macos.sh` from Terminal.
+3. The installer places the pre-compiled app in `/Applications`, sets up the Python backend, and registers LaunchAgents.
 
 Requirements:
 
-- macOS 13+; builds target the host architecture (Apple Silicon or Intel).
-- Python 3.10+ with `venv`; CI covers 3.10–3.13. Python remains a runtime requirement. There are no third-party Python runtime packages.
-- Swift 6.0+ and a macOS SDK for building, such as Xcode 16+ or compatible Command Line Tools. Your chosen toolchain may require a newer build host than macOS 13. Check `swift --version`.
+- macOS 13+ (Apple Silicon or Intel).
+- Python 3.10–3.13 with `venv`. Python remains a runtime requirement. There are no third-party Python runtime packages.
 - [Claude Code](https://code.claude.com/docs/en/setup) installed and signed in with subscription access. No Anthropic API key is required. Network access is needed for Claude and optional Telegram.
-- Standard macOS utilities including `curl`, `security`, `codesign`, and `launchctl`.
+
+The installer ZIP is ad-hoc signed, not notarized — macOS may require right-click → Open on first launch. Verify downloads with `shasum -a 256 -c SHA256SUMS`.
+
+### Alternative: install from source
+
+Building from source requires Swift 6.0+ and a macOS SDK (Xcode 16+ or compatible Command Line Tools) in addition to the requirements above.
 
 ```bash
 git clone https://github.com/aetsr/claude-code-window-starter.git
@@ -75,7 +83,7 @@ claude auth login
 ./scripts/install-macos.sh
 ```
 
-Run from a clean checkout: the installer refuses uncommitted source changes. It builds and opens `/Applications/Claude Window Starter.app`, creates a virtual environment under `~/Library/Application Support/ClaudeWindowStarter`, and registers user LaunchAgents. Writing to `/Applications` may require permission. Swift/Xcode is needed for source installation and upgrades, not normal operation afterward.
+The source installer builds the app, creates a virtual environment under `~/Library/Application Support/ClaudeWindowStarter`, and registers user LaunchAgents. Run from a clean checkout: the installer refuses uncommitted source changes. Writing to `/Applications` may require permission.
 
 ### Build from source without installing
 

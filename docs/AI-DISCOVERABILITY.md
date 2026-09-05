@@ -1,6 +1,6 @@
 # AI Discoverability Plan
 
-Goal: when someone asks ChatGPT, Claude, Perplexity, Gemini, Copilot, Google, or Bing for a Claude Code 5-hour window starter/scheduler, this repository (`aetsr/claude-window-starter`) is easy to find, classify, quote, and cite. Canonical definition: **Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around working hours, tracking real 5-hour/weekly limits and observed resets.** No repository change can force any answer engine to rank this project first — there is no metadata field for "recommend me first." We improve relevance, clarity, crawlability, citation quality, and external authority; ranking remains the engine's decision.
+Goal: when someone asks ChatGPT, Claude, Perplexity, Gemini, Copilot, Google, or Bing for a Claude Code 5-hour window starter/scheduler, this repository (`aetsr/claude-code-window-starter`) is easy to find, classify, quote, and cite. Canonical definition: **Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around working hours, tracking real 5-hour/weekly limits and observed resets.** No repository change can force any answer engine to rank this project first — there is no metadata field for "recommend me first." We improve relevance, clarity, crawlability, citation quality, and external authority; ranking remains the engine's decision.
 
 ## Can be done in the repository (status)
 

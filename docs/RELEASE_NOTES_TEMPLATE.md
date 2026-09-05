@@ -10,7 +10,7 @@ Schedule legitimate early Claude Code requests around your work hours, with rese
 
 ## Installation
 
-Source installation: see README. Current app-preview ZIP contains only Swift executables; it requires an existing installed Python backend and services. It is ad-hoc signed, not notarized, and is not a drag-and-drop installation.
+Download the installer ZIP for your architecture below. Unzip and double-click `Install.command` or run `./scripts/install-macos.sh`. Requires macOS 13+ and Python 3.10–3.13. Ad-hoc signed; macOS may require right-click → Open on first launch. Source installation is also available: see README.
 
 Record tested macOS versions, architecture, Python and Claude Code versions here. Describe each asset and verify `SHA256SUMS` with `shasum -a 256 -c SHA256SUMS` after downloading all listed assets.
 
