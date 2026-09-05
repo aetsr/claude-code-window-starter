@@ -40,7 +40,11 @@ Claude Window Starter solves the timing problem. You tell it your work hours (fo
 
 If waiting for a usage limit to reset interrupts your day, starting legitimate usage earlier may make the next reset more useful.
 
-![Claude Window Starter — Claude Code 5-hour usage window scheduler for macOS](docs/images/automation.png)
+<p align="center">
+  <img src="docs/images/automation.png"
+       alt="Claude Window Starter — Claude Code 5-hour usage window scheduler for macOS"
+       width="820">
+</p>
 
 Illustrative default plan, not a screenshot or a promise of server reset times:
 
