@@ -1,5 +1,7 @@
 # Claude Window Starter
 
+**Claude Code 5-hour usage window starter and scheduler for macOS.**
+
 A macOS menu bar app that pre-starts and schedules Claude Code's 5-hour usage window around your working hours. It tracks 5-hour and weekly usage with reset countdowns, replans around observed active windows, and optionally provides Telegram remote control. If you want your Claude Code usage window to reset at a more useful time, scheduling a small early request can help — this app automates that.
 
 It does **not** increase quota, bypass Anthropic usage limits, reset server-side limits, or exploit authentication. Scheduled requests consume normal subscription usage. An already active window cannot be moved; Anthropic determines whether a request starts a new window and when it resets.
