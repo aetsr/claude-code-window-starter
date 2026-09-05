@@ -20,4 +20,6 @@ After reviewing a real capture, replace the README comment with:
 ![Claude Code five-hour scheduler showing work hours, planned requests and observed reset](docs/images/automation.png)
 ```
 
+**Hero pick:** `automation.png` is the single screenshot for the top of the README — it must show 5h usage, weekly usage, reset time/countdown, next scheduled anchor, and automation status in one crop. `usage.png` and `work-hours.png` support lower sections; do not put three screenshots in the hero.
+
 Use a real screenshot crop and the product title for a 1280 × 640 GitHub social preview. Uploading the social preview is a manual repository settings action.
