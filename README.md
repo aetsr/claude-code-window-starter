@@ -4,6 +4,9 @@
 
 **Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around your working hours. It tracks the real 5-hour and weekly usage limits, observes server-reported reset times, and schedules lightweight Claude Code requests (anchors) so future resets land at more useful times.**
 
+[![CI](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 ## TL;DR
 
 **Claude Window Starter automatically starts Claude Code's 5-hour usage window at scheduled times, so future reset times align better with your work schedule.**
@@ -34,9 +37,6 @@ Claude Code subscriptions include a 5-hour usage window (sometimes called the 5-
 Claude Window Starter solves the timing problem. You tell it your work hours (for example 09:00–18:00 on weekdays). It schedules a lightweight anchor request a few hours earlier (for example 06:00), which — when you have no active window — may open a fresh 5-hour window on Anthropic's side. Later anchors replan from the reset time the server actually reports, so the plan adapts instead of firing blindly. Nothing is bypassed: the request is ordinary Claude Code usage, Anthropic decides whether a new window starts, and an already-active window cannot be moved.
 
 If waiting for a usage limit to reset interrupts your day, starting legitimate usage earlier may make the next reset more useful.
-
-[![CI](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 <!-- Real screenshot TODO: capture the Automation tab with planner, observed
 reset, source/freshness and next action. See docs/SCREENSHOTS.md. Insert a real,

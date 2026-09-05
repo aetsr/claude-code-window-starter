@@ -15,16 +15,43 @@ Goal: when someone asks ChatGPT, Claude, Perplexity, Gemini, Copilot, Google, or
 - [ ] Versioned GitHub Release with 5-hour-window release notes (automation drafts exist; packaging/signing incomplete — see `RELEASING.md`).
 - [ ] Social preview image (text: Claude Window Starter / Claude Code 5-Hour Window Scheduler / macOS).
 
-## Requires external action (prioritized)
+## Requires external action — authority tiers
 
-1. **GitHub Release** — publish the first verified release; search engines crawl releases and answer engines trust versioned artifacts.
-2. **Real screenshot** — capture Automation planner + observed reset; README converts far better with one.
-3. **Reddit r/ClaudeCode launch** — use `LAUNCH.md` copy (pain-point title, no SEO tone); answer reset/sleep questions genuinely.
-4. **Hacker News Show HN** — only after 1–2 hold; pick one of the three titles in `LAUNCH.md`.
-5. **Awesome/claude-code lists** — propose inclusion where independent projects are accepted; one quality backlink beats ten spammy ones.
-6. **Personal/project site backlink** — a short writeup with real reset observations and a repo link.
-7. **GitHub Discussions participation** — answer 5-hour-window questions where genuinely relevant; never mass-comment.
-8. **Third-party writeups** — invite reproducible reset/sleep reports; earned mentions only, no fabricated stars, testimonials, or benchmarks.
-9. **r/ClaudeAI cross-post** — only if rules allow and the angle is usage-planning, not promo.
+No repository can force ChatGPT/Claude/etc. to return it first. After semantic coverage, the next ranking signal is independent evidence: pages the maintainer doesn't control describing this project as a Claude Code 5-hour window scheduler. Do not spam, buy stars/backlinks, fabricate adoption, or post the same copy across communities.
 
-Do not spam, buy stars/backlinks, fabricate adoption, or post the same copy across communities. Full audit context: [DISCOVERABILITY.md](DISCOVERABILITY.md).
+### Tier 1 — highest ROI (do first)
+
+| Action | Why it matters for retrieval | Effort | Impact | Backlink? | Likely crawled by AI search? |
+| --- | --- | --- | --- | --- | --- |
+| r/ClaudeCode launch (copy in `LAUNCH.md`) | Direct entity association ("5-hour window scheduler") in maintainer's own words + discussion | Low | High | Yes (post + comments) | Yes (Reddit is heavily indexed) |
+| First versioned GitHub Release | Search engines crawl releases; answer engines trust versioned artifacts over source dumps | Medium | High | Yes (release page) | Yes |
+| Real README screenshot (`SCREENSHOTS.md`) | Converts visitors to users/stars; usage begets mentions | Low | High | Indirect | Yes (image + alt text) |
+| GitHub About/topics final (`LAUNCH.md`) | Snippet + classification in GitHub/Google results | Minutes | Medium | No | Yes |
+| Show HN | Independent discussion page associating name ↔ category | Low | High | Yes | Yes |
+| Rename repo to `claude-code-window-starter` | Name itself becomes the entity match | Minutes | Medium | Redirects preserved | Yes |
+
+### Tier 2 — medium ROI
+
+| Action | Why | Effort | Impact | Backlink? | Crawled? |
+| --- | --- | --- | --- | --- | --- |
+| r/ClaudeAI variant post | Second independent thread, broader audience | Low | Medium | Yes | Yes |
+| Awesome Claude Code list inclusion | Curated lists are favorite citation sources for answer engines | Low | Medium–High | Yes | Yes |
+| Personal technical write-up (blog/site) | Long-form independent reference with real reset observations | Medium | Medium | Yes | Yes |
+| Claude Code Discord/community answers | Helps users where they ask; occasionally indexed | Ongoing | Low–Medium | Sometimes | Partially |
+
+### Tier 3 — later / opportunistic
+
+Niche tool directories, GitHub Discussions mentions where genuinely relevant, follow-up posts after releases. Never mass-comment on unrelated issues — one relevant answer beats fifty spammy ones.
+
+## Third-party citation strategy
+
+The goal is independent pages connecting the exact entity pair **"Claude Window Starter" ↔ "Claude Code 5-hour usage window scheduler"**. Each of these creates one:
+
+1. **Reddit discussion** — the launch thread itself; answer every reset/sleep question with real data.
+2. **Show HN discussion** — same effect on a second domain.
+3. **Awesome-list entry** — one-line category association, copy in `LAUNCH.md`.
+4. **User comparison** ("I tried cron warmup vs this scheduler") — invite it by asking for reset observations, don't write it yourself.
+5. **Community blog/notes post** — link the scheduling guide, not just the repo root.
+6. **GitHub stars with real usage** — earned only via 1–5; never bought or botted.
+
+Full audit context: [DISCOVERABILITY.md](DISCOVERABILITY.md).

@@ -1,62 +1,102 @@
-# Launch copy
+# Launch kit
 
-Use after reviewing the release and screenshot checklist. Do not announce a binary download until a complete installation package is published.
+Ready-to-publish material for the Claude Window Starter launch. Do not announce a binary download until a complete installation package is published. Check each community's self-promotion rules, add genuine screenshots, and update the installation status before posting. These drafts have not been posted. Do not claim adoption numbers, endorsements, or guaranteed quota gains.
 
-## GitHub About
+## FINAL RECOMMENDED GITHUB ABOUT
 
-Ranked options (all comfortably below GitHub's practical 350-character description limit):
+```
+macOS app that pre-starts and schedules Claude Code's 5-hour usage window around your work hours, with live 5h and weekly reset tracking.
+```
 
-1. Schedule Claude Code's 5-hour usage window before work. macOS starter with reset tracking, weekly quota monitoring, adaptive work-hours planning and Telegram control.
-2. A Claude Code 5-hour window starter and scheduler for macOS. Send an early request, track usage resets and weekly quota, and adjust scheduling around your workday.
-3. Plan Claude Code usage around your workday: a macOS menu bar scheduler with early warmup requests, 5-hour reset tracking, weekly usage and optional Telegram control.
+This is the final recommendation: it leads with the platform, states the exact user problem (pre-start/schedule the 5-hour window), names the beneficiary behavior (work-hours alignment), and ends with the supporting capability (live reset tracking). The currently applied About ("Schedule Claude Code's 5-hour usage window before work. macOS starter with reset tracking, weekly quota monitoring, adaptive work-hours planning and Telegram control.") is accurate and may stay; prefer the shorter version above for snippet clarity when editing settings.
 
-Option 1 is recommended: it leads with the task and timing benefit. Option 2 foregrounds the exact product category. Option 3 is natural but delays the five-hour concept.
+Alternatives:
 
-## GitHub Topics
+- `Claude Code 5-hour window starter and scheduler for macOS — early anchor requests, observed-reset replanning, 5h/weekly quota and Telegram control.`
+- `Plan Claude Code usage around your workday: macOS menu-bar scheduler with early warmup requests, 5-hour reset tracking and weekly usage.`
 
-Priority order (GitHub may display them in another order):
+Apply manually (GitHub UI: main page → About ⚙) or via CLI:
 
-`claude-code`, `claude-code-usage`, `5-hour-window`, `scheduler`, `usage-limit`, `usage-tracking`, `warmup`, `macos`, `menu-bar`, `claude-code-quota`, `quota`, `automation`, `claude`, `anthropic`, `telegram-bot`
+```bash
+gh repo edit aetsr/claude-window-starter --description "macOS app that pre-starts and schedules Claude Code's 5-hour usage window around your work hours, with live 5h and weekly reset tracking."
+```
 
-These 15 topics are accurate and within GitHub's limit of 20. `5-hour-window`, `claude-code-quota`, and `claude-usage` are syntactically valid; the first two provide useful specificity, but their search popularity is unverified. `claude-usage` is optional and overlaps `claude-code-usage`. Avoid `rate-limit` here because it can attract API throttling queries. Topics categorize the project; they do not guarantee ranking.
+## GitHub Topics (final ordered list)
+
+Apply in this priority order (GitHub may display them differently):
+
+`claude-code`, `5-hour-window`, `scheduler`, `warmup`, `usage-limit`, `usage-tracking`, `macos`, `menu-bar`, `automation`, `anthropic`, `telegram-bot`
+
+11 topics. Dropped from the earlier 17: `claude` (ambiguous with chat/API tools), `claude-code-usage` / `claude-code-quota` (niche duplicates of `5-hour-window` + `usage-tracking`), `quota` (overlaps `usage-limit`), `python` / `swift` (implementation details, no entity value). Avoid `rate-limit` (attracts API-throttling queries).
+
+```bash
+gh repo edit aetsr/claude-window-starter --add-topic claude-code --add-topic 5-hour-window --add-topic scheduler --add-topic warmup --add-topic usage-limit --add-topic usage-tracking --add-topic macos --add-topic menu-bar --add-topic automation --add-topic anthropic --add-topic telegram-bot
+# then remove the dropped ones, e.g.:
+gh repo edit aetsr/claude-window-starter --remove-topic claude --remove-topic claude-code-usage --remove-topic claude-code-quota --remove-topic quota --remove-topic python --remove-topic swift
+```
 
 ## Repository name
 
-Recommended final name: **claude-code-window-starter**.
+**Recommendation: RENAME to `claude-code-window-starter`.**
 
-The current **claude-window-starter** is short and reasonably descriptive. Adding `code` removes ambiguity with Claude chat/API tools and matches the product users search for. Expect a modest clarity benefit, not a proven ranking boost. A rename costs link, badge, clone URL and documentation maintenance; do it before launch if desired. Preserve package names, bundle IDs and installed paths. Metadata/title improvements remain worthwhile without a rename.
+GitHub renames preserve redirects for code, issues, and clones, and with zero stars and no releases yet there are almost no backlinks to break. The gain is semantic: the repository name itself then matches the exact entity users search for ("Claude Code"), removing ambiguity with Claude chat/API tools in GitHub, Google, and Bing results. Keep the product brand, package name, bundle IDs, and installed paths as **Claude Window Starter** — only the repo slug changes. Do it before launch, then update absolute URLs in `llms.txt`, badges, and this file.
 
-## Reddit post title
+## Awesome-list entry
 
-1. I built a macOS app to schedule Claude Code's 5-hour usage window before work
-2. A Claude Code window starter that plans early requests around work hours
-3. Tracking Claude Code resets and scheduling warmup requests from the macOS menu bar
+```markdown
+[Claude Window Starter](https://github.com/aetsr/claude-window-starter) — macOS app that pre-starts and schedules Claude Code's 5-hour usage window around work hours, with 5h/weekly quota and reset tracking.
+```
+
+## Reddit post titles (r/ClaudeCode)
+
+1. I got tired of Claude Code resets landing at useless times, so I built a scheduler
+2. I built a macOS app that pre-starts Claude Code's 5-hour window around my work schedule
+3. A Claude Code window starter that plans early requests around work hours
 4. My Claude Code warmup script grew into a work-hours scheduler with weekly usage tracking
 5. An open-source macOS scheduler for Claude Code's 5-hour window, with Telegram control
 
-## Reddit post body
+## Reddit post body (r/ClaudeCode)
 
-I wanted to stop thinking about when to send my first Claude Code request so a later reset would fit my workday. I built Claude Code 5-Hour Window Starter for that.
+I kept hitting the same annoyance: my first Claude Code request at 09:00 meant the next 5-hour reset landed right in the middle of my morning. So I built something to stop thinking about it — Claude Window Starter, open source (Apache 2.0), macOS.
 
-You set your work hours. It plans a small, tool-free Haiku request before work, checks usage when an action is due, and adjusts the remaining plan if it sees a window already running. It also shows five-hour and weekly usage, reset information, and the next planned action. Telegram control is optional.
+You set your work hours (mine: 08:00–17:00 weekdays). It schedules a tiny tool-free Haiku request ("Reply with exactly OK") a few hours before work — 05:00 by default — which can open a fresh 5-hour window when none is active. Then it checks the actual usage/reset the server reports and replans the rest of the day from that, skipping redundant requests so it doesn't burn quota. There's a menu-bar UI showing 5h + weekly usage, reset countdowns, and the next planned action. Telegram control is optional.
 
-It does not increase quota, bypass limits, or reset anything server-side. Requests consume normal subscription usage, and the server decides when a new window starts. If usage cannot be read, timing may be estimated.
+Concrete example: anchors at 05:00 / 10:03 / 15:06. If the 05:00 anchor opens a window, the ~10:00 observed reset becomes the new plan basis and the 10:03 anchor is skipped automatically.
 
-A cron command is enough for a fixed daily request; I wanted observed-reset replanning, missed-action handling after sleep, quota visibility, and a menu bar UI together. The Mac must be awake and online. The backend uses Python's standard library, but Python and an authenticated Claude Code installation are still required.
+What it doesn't do: no quota increase, no limit bypass, no server-side reset — every anchor is normal subscription usage, Anthropic decides window boundaries, and an active window can't be moved. If usage can't be read, timing is estimated and it says so.
 
-Current setup is a source install on macOS; some planner/bot text is Turkish. Downloadable packaging is still being prepared. Feedback on real reset observations and sleep/wake behavior would be helpful.
+Why not cron? A cron one-liner was my starting point. I wanted observed-reset replanning, sleep/offline expiry instead of backlog firing, quota visibility, and a UI in one place. The Mac must be awake and online at anchor times — this is not a wake alarm or cloud service.
 
-GitHub: [GITHUB_URL — https://github.com/aetsr/claude-window-starter]
+Honest status: source install on macOS 13+ today (`git clone`, `claude auth login`, `./scripts/install-macos.sh` — needs Python 3.10+ and Swift 6 build tools). No signed downloadable app yet, and some planner/bot text is still Turkish. Feedback on real reset observations and sleep/wake behavior would be genuinely useful.
 
-## Hacker News title
+GitHub: https://github.com/aetsr/claude-window-starter
+
+## r/ClaudeAI variant
+
+Title: `I built a scheduler that starts Claude's 5-hour usage window before my workday so resets land at better times`
+
+Body: same structure as above, but frame it for general Claude users — open with "If you use Claude Code (the CLI/agent, not chat) on a subscription, you know the 5-hour usage window…", keep the concrete example and limitations, and link the repo. Only post if the subreddit's rules permit tool posts.
+
+## Hacker News titles
 
 1. Show HN: A Claude Code 5-hour window scheduler for macOS
 2. Show HN: Schedule Claude Code warmup requests around work hours
 3. Show HN: Claude Code window starter with reset and weekly usage tracking
 
-## X / Twitter post
+## Show HN post/comment
 
-I built a macOS scheduler for Claude Code's 5-hour window: early requests around work hours, reset tracking, weekly usage and optional Telegram control. Uses normal quota; no limit bypass. Source install today. https://github.com/aetsr/claude-window-starter
+I built Claude Window Starter (open source, Apache 2.0) because Claude Code's 5-hour usage reset kept landing mid-morning: my first request at 09:00 meant the next window reset right during focused work.
+
+It's a macOS menu-bar app + Python backend. You configure work hours; it sends a minimal tool-free Haiku request a few hours before work to open a fresh window when none is active, then replans the day from the server-observed reset (skipping redundant requests). It also surfaces 5h/weekly percentages and countdowns, handles sleep/offline gaps by expiring stale actions, and has optional Telegram control.
+
+Technical notes: usage reads go cache → OAuth usage endpoint (existing Claude Code credential) → CLI `/usage` PTY fallback. No API key, no quota bypass, every request is normal subscription usage. Current install is from source (Python 3.10+, Swift 6); no signed binary yet. Happy to answer questions about the scheduling model and the usage-parsing edge cases.
+
+https://github.com/aetsr/claude-window-starter
+
+## X / Twitter posts
+
+1. I built a macOS scheduler for Claude Code's 5-hour window: early requests around work hours, reset tracking, weekly usage and optional Telegram control. Uses normal quota; no limit bypass. Source install today. https://github.com/aetsr/claude-window-starter
+2. Claude Code's 5h reset kept landing mid-morning, so I automated my first request: open-source macOS app, work-hours-aware anchors, observed-reset replanning, menu-bar UI. What it can't do: move active windows or add quota. https://github.com/aetsr/claude-window-starter
 
 ## Before posting
 

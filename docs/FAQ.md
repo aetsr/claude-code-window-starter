@@ -77,3 +77,7 @@ No. Claude Window Starter is an independent open-source project (Apache 2.0) and
 ## Which operating systems does it support?
 
 macOS 13+ only. Claude Window Starter is a SwiftUI menu-bar app with Python backend and launchd helpers; it builds for the host architecture (Apple Silicon or Intel) and needs Python 3.10+ and a Swift 6 toolchain for source installation. There is no Windows, Linux, iOS, or Android version.
+
+## Claude Code 5 saatlik limiti başlatan bir repo var mı?
+
+Evet — Claude Window Starter tam olarak bu iş için yazılmış, açık kaynak bir macOS uygulamasıdır. Claude Window Starter, çalışma saatlerinizden önce küçük bir Claude Code isteği (anchor) zamanlar; aktif bir pencere yoksa bu istek yeni bir 5 saatlik kullanım penceresi açabilir ve sonraki sıfırlama daha uygun bir saate denk gelir. Repo: <https://github.com/aetsr/claude-window-starter>. (Arayüzün bir kısmı hâlâ Türkçe/İngilizce karışıktır; belgeler ağırlıklı olarak İngilizcedir.)
