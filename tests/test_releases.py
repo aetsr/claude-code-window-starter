@@ -32,11 +32,12 @@ class LocalReleaseTests(unittest.TestCase):
         )
         return directory
 
-    def test_rollback_switches_current_and_previous_atomically(self) -> None:
-        result = self.manager.rollback()
-        self.assertEqual(result["release"], self.first.name)
-        self.assertEqual(self.paths.current.resolve(), self.first.resolve())
-        self.assertEqual(self.paths.previous.resolve(), self.second.resolve())
+    def test_rollback_rejects_incomplete_legacy_release_without_switching(self) -> None:
+        with self.assertRaises(AppError) as context:
+            self.manager.rollback()
+        self.assertEqual(context.exception.code, ErrorCode.INVALID_RELEASE)
+        self.assertEqual(self.paths.current.resolve(), self.second.resolve())
+        self.assertEqual(self.paths.previous.resolve(), self.first.resolve())
 
     def test_rollback_rejects_path_escape(self) -> None:
         outside = self.paths.base / "outside"

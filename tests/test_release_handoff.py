@@ -1,40 +1,48 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from claude_starter.installation import APP_NAME, SystemServices
+from claude_starter.paths import AppPaths
 
 
 class ReleaseWorkerHandoffTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.root = Path(__file__).resolve().parents[1]
+    def test_only_this_installations_verified_workers_are_stopped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory) / "runtime-home")
+            paths.ensure()
+            paths.bot_lock.write_text("1234")
+            app = Path(directory) / APP_NAME
+            services = SystemServices(paths, app, Path(directory) / "agents")
+            listing = (
+                f"1234 python -m claude_starter --home {paths.base} --json telegram-bot\n"
+                "1235 python -m claude_starter --home /other --json telegram-bot\n"
+                f"1236 {app}/Contents/Helpers/ClaudeWindowStarterAgent telegram\n"
+                "1237 /other/ClaudeWindowStarterAgent telegram\n"
+            )
+            with (
+                mock.patch.object(services, "loaded", return_value=False),
+                mock.patch("claude_starter.installation.run_checked", return_value=listing),
+                mock.patch.object(services, "_terminate") as terminate,
+            ):
+                services.stop()
+            self.assertEqual({call.args[0] for call in terminate.call_args_list}, {1234, 1236})
 
-    def test_install_targets_only_verified_lock_owner_without_pkill(self) -> None:
-        install = (self.root / "scripts/install-macos.sh").read_text(encoding="utf-8")
-        build = (self.root / "scripts/build-macos-app.sh").read_text(encoding="utf-8")
-        self.assertNotIn("pkill", install)
-        self.assertNotIn("pkill", build)
-        self.assertIn("shared/runtime/telegram.lock", install)
-        self.assertIn('" -m claude_starter "', install)
-        self.assertIn('" --home $BASE "', install)
-        self.assertIn('" telegram-bot "', install)
-        self.assertIn('kill -TERM "$worker_pid"', install)
-        self.assertIn('" --supervisor-pid "', install)
-
-    def test_install_stops_old_supervisor_before_worker_handoff(self) -> None:
-        install = (self.root / "scripts/install-macos.sh").read_text(encoding="utf-8")
-        # All existing jobs are booted out, then supervisors killed, then workers terminated,
-        # then fresh jobs bootstrapped, then one final legacy worker cleanup.
-        # Use the invocation lines (not the function definitions) for ordering checks.
-        bootout_loop = "done\nterminate_all_telegram_supervisors"
-        initial_handoff = "terminate_stale_telegram_worker\n"
-        post_bootstrap_handoff = "terminate_stale_telegram_worker legacy"
-        self.assertIn(bootout_loop, install)
-        self.assertLess(install.index(bootout_loop), install.index(initial_handoff))
-        self.assertGreater(
-            install.index(post_bootstrap_handoff),
-            install.index('launchctl bootstrap "$DOMAIN" "$AGENT_DIR/$label.plist"'),
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_stale_pid_with_different_task_is_not_terminated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paths = AppPaths(Path(directory))
+            paths.ensure()
+            paths.bot_lock.write_text("1234")
+            services = SystemServices(paths, paths.base / APP_NAME, paths.base / "agents")
+            with (
+                mock.patch.object(services, "loaded", return_value=False),
+                mock.patch(
+                    "claude_starter.installation.run_checked", return_value="1234 unrelated\n"
+                ),
+                mock.patch.object(services, "_terminate") as terminate,
+            ):
+                services.stop()
+            terminate.assert_not_called()
