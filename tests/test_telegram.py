@@ -83,7 +83,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(self.api.messages[-1][1], "Bu komut için yetkiniz yok.")
+        self.assertEqual(self.api.messages[-1][1], "You are not authorized for this command.")
         self.assertEqual(self.api.actions, [])
 
     def test_usage_cooldown_stops_before_typing_and_query(self) -> None:
@@ -138,7 +138,7 @@ class TelegramTests(unittest.TestCase):
             "claude_starter.telegram_bot.query_usage",
             return_value={
                 "formatted_text": (
-                    "📊 Claude Kullanım Bilgisi\n• Current session [all] 40% used\n• Resets in 2h"
+                    "📊 Claude Usage\n• Current session [all] 40% used\n• Resets in 2h"
                 )
             },
         ):
@@ -151,7 +151,7 @@ class TelegramTests(unittest.TestCase):
                     }
                 }
             )
-        self.assertIn("Claude Kullanım Bilgisi", self.api.messages[-1][1])
+        self.assertIn("Claude Usage", self.api.messages[-1][1])
         self.assertEqual(self.api.actions, [(100, "typing")])
         self.assertEqual(self.api.events, ["typing", "message"])
         self.assertFalse(self.api.message_options[-1]["auto_parse_mode"])
@@ -169,7 +169,7 @@ class TelegramTests(unittest.TestCase):
         config = load_config(self.paths)
         self.assertEqual(config["windows"]["five_hour"]["mode"], "adaptive")
         self.assertEqual(config["windows"]["five_hour"]["busy_start_local"], "09:00")
-        self.assertIn("Hafta içi / Maksimum kota", self.api.messages[-1][1])
+        self.assertIn("Weekdays", self.api.messages[-1][1])
 
     def test_workhours_rejects_overnight_period(self) -> None:
         self.bot.handle_update(
@@ -181,12 +181,12 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertIn("gece yarısını geçen", self.api.messages[-1][1])
+        self.assertIn("overnight", self.api.messages[-1][1])
 
     def test_sync_usage_returns_plan_confidence(self) -> None:
         with mock.patch(
             "claude_starter.telegram_bot.query_usage",
-            return_value={"formatted_text": "Kullanım senkronize edildi."},
+            return_value={"formatted_text": "Usage synchronized."},
         ):
             self.bot.handle_update(
                 {
@@ -197,23 +197,23 @@ class TelegramTests(unittest.TestCase):
                     }
                 }
             )
-        self.assertIn("Plan güveni", self.api.messages[-1][1])
+        self.assertIn("Plan confidence", self.api.messages[-1][1])
         self.assertEqual(self.api.actions, [(100, "typing")])
 
-    def test_usage_errors_are_short_turkish_plain_text(self) -> None:
+    def test_usage_errors_are_short_english_plain_text(self) -> None:
         errors = (
             (
                 AppError(ErrorCode.ALREADY_RUNNING),
-                "Başka bir Claude işlemi çalışıyor",
+                "Another Claude process is running",
             ),
             (
                 AppError(ErrorCode.CLAUDE_NOT_AUTHENTICATED),
-                "Claude abonelik oturumu açık değil",
+                "Claude subscription session is not active",
             ),
-            (AppError(ErrorCode.TIMEOUT), "zaman aşımına uğradı"),
+            (AppError(ErrorCode.TIMEOUT), "timed out"),
             (
                 AppError(ErrorCode.CLAUDE_USAGE_UNAVAILABLE),
-                "Claude kullanım bilgisi alınamadı",
+                "Could not retrieve Claude usage info",
             ),
         )
         for error, expected in errors:
@@ -264,7 +264,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertIn(self.api.callbacks[-1][1], ("Updated", "✅ Güncellendi"))
+        self.assertIn(self.api.callbacks[-1][1], ("Updated", "✅ Updated"))
 
     def test_callback_cancel_clears_confirmation(self) -> None:
         """Cancelling a confirmation should respond with 'Cancelled'."""
@@ -290,7 +290,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertIn(self.api.callbacks[-1][1], ("Cancelled", "❌ İptal edildi"))
+        self.assertIn(self.api.callbacks[-1][1], ("Cancelled", "❌ Cancelled"))
 
     def test_malformed_confirmation_expiry_is_treated_as_expired(self) -> None:
         from claude_starter.state import update_state
@@ -317,7 +317,7 @@ class TelegramTests(unittest.TestCase):
                 }
             }
         )
-        self.assertIn(self.api.callbacks[-1][1], ("Expired", "⏱ Süre doldu"))
+        self.assertIn(self.api.callbacks[-1][1], ("Expired", "⏱ Expired"))
 
     def test_commands_are_rate_limited_within_cooldown(self) -> None:
         """A second command sent within the cooldown window must be rejected."""
@@ -332,7 +332,7 @@ class TelegramTests(unittest.TestCase):
             }
         )
         first_text = self.api.messages[-1][1]
-        self.assertNotEqual(first_text, "Lütfen birkaç saniye sonra tekrar deneyin.")
+        self.assertNotEqual(first_text, "Please wait a few seconds and try again.")
         # Second /status is sent immediately (well within the 1-second cooldown)
         self.bot.handle_update(
             {
@@ -344,7 +344,7 @@ class TelegramTests(unittest.TestCase):
             }
         )
         second_text = self.api.messages[-1][1]
-        self.assertEqual(second_text, "Lütfen birkaç saniye sonra tekrar deneyin.")
+        self.assertEqual(second_text, "Please wait a few seconds and try again.")
 
     def test_drain_notifications_preserves_concurrent_appends(self) -> None:
         """Items added to the queue while draining must not be lost."""

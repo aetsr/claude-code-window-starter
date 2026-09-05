@@ -10,7 +10,7 @@ By participating, you agree to maintain a respectful and inclusive environment f
 
 ### Reporting Bugs
 
-1. Check existing [issues](https://github.com/aetsr/claude-window-starter/issues) for duplicates
+1. Check existing [issues](https://github.com/aetsr/claude-code-window-starter/issues) for duplicates
 2. Use the bug report template when creating a new issue
 3. Include: macOS version, Python version, Claude CLI version, and relevant logs
 
@@ -31,8 +31,8 @@ By participating, you agree to maintain a respectful and inclusive environment f
 ### Development Setup
 
 ```bash
-git clone https://github.com/aetsr/claude-window-starter.git
-cd claude-window-starter
+git clone https://github.com/aetsr/claude-code-window-starter.git
+cd claude-code-window-starter
 
 # Install dev tools in an isolated environment
 python3 -m venv .venv

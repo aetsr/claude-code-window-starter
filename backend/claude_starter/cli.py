@@ -211,10 +211,10 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
                 and config["telegram"]["enabled"]
                 and config["telegram"]["notify_success"]
             ):
-                window_label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
+                window_label = "5-hour" if window_type == "five_hour" else "Weekly"
                 notify(
                     paths,
-                    f"✅ {window_label} pencere tamamlandı.\nModel: {result['selected_model']}",
+                    f"✅ {window_label} window completed.\nModel: {result['selected_model']}",
                 )
             rotate_logs(paths, config["log_retention_days"])
 
@@ -291,9 +291,9 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         tz_name = config_for_tz.get("timezone", "UTC")
         from .telegram_bot import _fmt_dt as _tg_fmt
 
-        window_label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
-        next_display = _tg_fmt(next_window, tz_name) if next_window else "hesaplanamadı"
-        notify(paths, f"⚙️ {window_label} pencere kalibre edildi.\nSonraki çalışma: {next_display}")
+        window_label = "5-hour" if window_type == "five_hour" else "Weekly"
+        next_display = _tg_fmt(next_window, tz_name) if next_window else "could not be calculated"
+        notify(paths, f"⚙️ {window_label} window calibrated.\nNext run: {next_display}")
         return "success", {
             "window_type": window_type,
             "anchor_iso": anchor_iso,
@@ -366,12 +366,12 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
 
             update_state(paths, _clear_offline)
             if missed:
-                window_names = {"five_hour": "5 saatlik", "weekly": "haftalık"}
+                window_names = {"five_hour": "5-hour", "weekly": "weekly"}
                 missed_str = ", ".join(window_names.get(w, w) for w in missed)
                 msg = (
-                    "🔌 İnternet bağlantısı yeniden kuruldu.\n\n"
-                    f"Çevrimdışıyken kaçırılan pencereler: *{missed_str}*\n\n"
-                    "Lütfen Mac uygulamasından veya bot üzerinden kalibre edin."
+                    "🔌 Internet connection restored.\n\n"
+                    f"Windows missed while offline: *{missed_str}*\n\n"
+                    "Please calibrate from the Mac app or Telegram bot."
                 )
                 try:
                     notify(paths, msg)
@@ -416,7 +416,7 @@ def execute(args: argparse.Namespace, paths: AppPaths) -> tuple[str, Any]:
         api = TelegramAPI(_read_token_stdin(), timeout=15)
         updates = api.get_updates(0, timeout=0)
         user_id, chat_id, next_offset = _find_pairing(updates, code)
-        api.send_message(chat_id, "Claude Window Starter eşleştirmesi tamamlandı.")
+        api.send_message(chat_id, "Claude Window Starter pairing completed.")
         config = load_config(paths, create=True)
         uids = config["telegram"].setdefault("allowed_user_ids", [])
         if user_id not in uids:
@@ -564,15 +564,12 @@ def _deep_patch(target: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]
 def _notify_schedule_event(paths: AppPaths, config: dict[str, Any], result: dict[str, Any]) -> None:
     event = str(result.get("event", ""))
     messages = {
-        "anchor_succeeded": "✅ Adaptif 5 saatlik kota penceresi Haiku ile başlatıldı.",
+        "anchor_succeeded": "✅ Adaptive 5-hour quota window started with Haiku.",
         "manual_window_detected": (
-            "ℹ️ Manuel Claude kullanımıyla açılmış aktif pencere algılandı; "
-            "plan gerçek resete göre güncellendi."
+            "ℹ️ Active window detected from manual Claude usage; plan updated to observed reset."
         ),
-        "weekly_exhausted": "⛔ Haftalık kota dolu; otomatik anchor işlemleri durduruldu.",
-        "anchor_failed": (
-            "⚠️ Adaptif anchor kalıcı olarak başarısız oldu; bu eylem yeniden denenmeyecek."
-        ),
+        "weekly_exhausted": "⛔ Weekly quota exhausted; automatic anchors paused.",
+        "anchor_failed": ("⚠️ Adaptive anchor permanently failed; this action will not be retried."),
     }
     message = messages.get(event)
     telegram = config.get("telegram", {})

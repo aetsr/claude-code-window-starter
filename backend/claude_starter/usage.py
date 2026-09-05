@@ -120,22 +120,28 @@ def _query_usage_api(token: str, timeout: int = 10) -> dict[str, Any] | None:
     Uses curl for reliable TLS on macOS (Python's ssl module may lack
     system root certificates).
     """
+    # Reject header/config injection. Keep the credential out of argv, the
+    # environment and files; curl receives the header over an anonymous pipe.
+    if not token or any(ord(char) < 33 or ord(char) == 127 for char in token):
+        return None
     try:
         result = subprocess.run(
             [
-                "curl",
+                "/usr/bin/curl",
+                "--disable",
                 "-s",
                 "-f",
                 "--max-time",
                 str(timeout),
-                "-H",
-                f"Authorization: Bearer {token}",
+                "--header",
+                "@-",
                 "-H",
                 "anthropic-beta: oauth-2025-04-20",
                 "-H",
                 "Content-Type: application/json",
                 _USAGE_API_URL,
             ],
+            input=f"Authorization: Bearer {token}\n",
             capture_output=True,
             text=True,
             timeout=timeout + 5,
@@ -187,9 +193,10 @@ def _api_response_to_result(data: dict[str, Any], config: dict[str, Any]) -> dic
                 "resets_at": sd.get("resets_at"),
             }
 
-    # Build formatted text with both Germany and Turkey times
+    # Build formatted text using the configured timezone
     lines = []
-    label_map = {"five_hour": "5 Saatlik Oturum", "weekly": "Haftalık"}
+    label_map = {"five_hour": "5-Hour Session", "weekly": "Weekly"}
+    user_tz_name = str(config.get("timezone", "UTC"))
     for key in ("five_hour", "weekly"):
         entry = limits.get(key)
         if entry and entry.get("used_percentage") is not None:
@@ -198,22 +205,16 @@ def _api_response_to_result(data: dict[str, Any], config: dict[str, Any]) -> dic
             if entry.get("resets_at"):
                 try:
                     reset_dt = datetime.fromisoformat(entry["resets_at"])
-                    de_tz = ZoneInfo("Europe/Berlin")
-                    tr_tz = ZoneInfo("Europe/Istanbul")
-                    de_local = reset_dt.astimezone(de_tz)
-                    tr_local = reset_dt.astimezone(tr_tz)
-                    reset_str = (
-                        f" — Sıfırlanma: {de_local.strftime('%d.%m %H:%M')} DE"
-                        f" / {tr_local.strftime('%H:%M')} TR"
-                    )
+                    user_tz = ZoneInfo(user_tz_name)
+                    local_dt = reset_dt.astimezone(user_tz)
+                    place = user_tz_name.split("/")[-1]
+                    reset_str = f" — Resets: {local_dt.strftime('%m/%d %H:%M')} ({place})"
                 except (ValueError, KeyError):
                     pass
-            lines.append(f"{label_map[key]}: %{pct:.0f} kullanıldı{reset_str}")
+            lines.append(f"{label_map[key]}: {pct:.0f}% used{reset_str}")
 
-    usage_text = "\n".join(lines) if lines else "Kullanım bilgisi mevcut değil."
-    formatted = (
-        "📊 Claude Kullanım Bilgisi\n" + "\n".join(f"• {line}" for line in lines) if lines else ""
-    )
+    usage_text = "\n".join(lines) if lines else "No usage data available."
+    formatted = "📊 Claude Usage\n" + "\n".join(f"• {line}" for line in lines) if lines else ""
 
     result = {
         "captured_at": captured_at.isoformat(),
@@ -405,7 +406,7 @@ def query_usage(
     if not usage_text:
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Claude Code kullanım bilgisi doğrulanamadı.",
+            "Claude Code usage info could not be verified.",
         )
     captured_at = datetime.now(timezone.utc)
     limits = parse_usage_limits(
@@ -581,12 +582,12 @@ def prepare_usage_workspace(paths: AppPaths) -> Path:
         if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
             raise AppError(
                 ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-                "Güvenli kullanım çalışma dizini doğrulanamadı.",
+                "Secure usage workspace could not be verified.",
             )
         if info.st_uid != expected_uid:
             raise AppError(
                 ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-                "Kullanım çalışma dizini mevcut kullanıcıya ait değil.",
+                "Usage workspace is not owned by the current user.",
             )
 
     workspace = paths.usage_workspace
@@ -598,14 +599,14 @@ def prepare_usage_workspace(paths: AppPaths) -> Path:
     if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_uid != expected_uid:
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Güvenli kullanım çalışma dizini doğrulanamadı.",
+            "Secure usage workspace could not be verified.",
         )
     os.chmod(workspace, 0o700)
     info = workspace.lstat()
     if stat.S_IMODE(info.st_mode) != 0o700:
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Kullanım çalışma dizini izinleri güvenli değil.",
+            "Usage workspace permissions are not secure.",
         )
 
     base = paths.base.resolve(strict=True)
@@ -615,7 +616,7 @@ def prepare_usage_workspace(paths: AppPaths) -> Path:
     ):
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Kullanım çalışma dizini uygulama kökünün dışında.",
+            "Usage workspace is outside the application root.",
         )
     return resolved
 
@@ -625,7 +626,7 @@ def build_usage_argv(executable: str, help_text: str) -> list[str]:
     if not executable_path.is_absolute():
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Claude CLI mutlak bir yoldan başlatılamadı.",
+            "Claude CLI could not be launched from an absolute path.",
         )
     try:
         resolved = executable_path.resolve(strict=True)
@@ -638,7 +639,7 @@ def build_usage_argv(executable: str, help_text: str) -> list[str]:
     if missing:
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Claude CLI güvenli arka plan oturumu için gerekli bayrakları desteklemiyor.",
+            "Claude CLI does not support required flags for safe background sessions.",
             {"missing_flags": missing},
         )
     return [
@@ -702,13 +703,13 @@ def run_usage_session(
                 state = UsageSessionState.NOT_AUTHENTICATED
                 raise AppError(
                     ErrorCode.CLAUDE_NOT_AUTHENTICATED,
-                    "Claude abonelik oturumu açık değil. `claude auth login` çalıştırın.",
+                    "Claude subscription session is not active. Run `claude auth login`.",
                 )
             if usage_sent and _UNKNOWN_USAGE_RE.search(normalized):
                 state = UsageSessionState.USAGE_UNAVAILABLE
                 raise AppError(
                     ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-                    "Bu Claude Code sürümü `/usage` komutunu desteklemiyor.",
+                    "This Claude Code version does not support the `/usage` command.",
                 )
 
             if not usage_sent:
@@ -717,7 +718,7 @@ def run_usage_session(
                     if not trust_prompt_is_for_workspace(normalized, workspace):
                         raise AppError(
                             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-                            "Beklenmeyen Claude çalışma dizini güven isteği reddedildi.",
+                            "Unexpected Claude workspace trust prompt rejected.",
                         )
                     process.write(b"\r")
                     trust_confirmed = True
@@ -771,7 +772,7 @@ def run_usage_session(
                     return transcript
                 raise AppError(
                     ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-                    "Claude Code kullanım oturumu sonuç üretmeden kapandı.",
+                    "Claude Code usage session exited without producing results.",
                     {
                         "returncode": returncode,
                         "session_state": state.value,
@@ -782,7 +783,7 @@ def run_usage_session(
         state = UsageSessionState.TIMED_OUT
         raise AppError(
             ErrorCode.TIMEOUT,
-            "Claude Code kullanım bilgisi zamanında alınamadı.",
+            "Claude Code usage info could not be retrieved in time.",
             {"session_state": state.value},
         )
     finally:
@@ -824,9 +825,9 @@ def format_usage_message(text: str) -> str:
     if not lines:
         raise AppError(
             ErrorCode.CLAUDE_USAGE_UNAVAILABLE,
-            "Claude Code kullanım bilgisi doğrulanamadı.",
+            "Claude Code usage info could not be verified.",
         )
-    return "📊 Claude Kullanım Bilgisi\n" + "\n".join(f"• {line}" for line in lines)
+    return "📊 Claude Usage\n" + "\n".join(f"• {line}" for line in lines)
 
 
 def summarized_usage_lines(text: str) -> list[str]:

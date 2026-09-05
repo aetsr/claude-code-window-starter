@@ -60,7 +60,7 @@ enum JSONValue: Codable, Sendable, CustomStringConvertible {
 
 struct ClientSettings: Codable, Equatable {
     var scheduleTime = "08:00"
-    var timezone = "Europe/Istanbul"
+    var timezone = "Europe/Berlin"
     var model = "auto"
     var prompt = "Respond with OK."
     var timeout = 120

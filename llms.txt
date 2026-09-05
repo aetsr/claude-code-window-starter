@@ -1,0 +1,33 @@
+# Claude Window Starter
+
+> A macOS menu bar app that pre-starts and schedules Claude Code's 5-hour usage window around your working hours, with 5h/weekly usage tracking and reset countdowns.
+
+## What it does
+
+Claude Window Starter schedules a small Claude Code request before your workday starts, which can begin a 5-hour usage window at a more useful time. It tracks usage percentages and reset times for both the 5-hour session and weekly limits, replans around observed active windows, and provides optional Telegram remote control.
+
+## What it does NOT do
+
+- Does not increase Claude Code quota
+- Does not bypass or reset Anthropic usage limits
+- Does not exploit authentication or API credentials
+- Scheduled requests consume normal subscription usage
+
+## Key details
+
+- Platform: macOS 13+ (menu bar app)
+- Backend: Python 3.10+ (stdlib only, no third-party dependencies)
+- UI: SwiftUI menu bar app + launchd background helper
+- License: Apache 2.0
+- Installation: source build (no published binary yet)
+
+## Links
+
+- Repository: https://github.com/aetsr/claude-code-window-starter
+- Installation: https://github.com/aetsr/claude-code-window-starter#installation
+- Telegram setup: https://github.com/aetsr/claude-code-window-starter/blob/main/docs/TELEGRAM.md
+- Security: https://github.com/aetsr/claude-code-window-starter/blob/main/SECURITY.md
+
+## Search terms
+
+Claude Code 5-hour window scheduler, Claude Code warmup, Claude Code usage window macOS, Claude Code reset scheduler, pre-start Claude Code window, Claude Code 5h limit starter

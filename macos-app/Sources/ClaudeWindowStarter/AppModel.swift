@@ -44,9 +44,9 @@ final class AppModel: ObservableObject {
     @Published var weeklyAnchorDate = Date()
     @Published var fiveHourIsCalibrated = false
     @Published var weeklyIsCalibrated = false
-    @Published var observedResetText = "Henüz gözlenmedi"
-    @Published var usageSourceText = "Kaynak yok"
-    @Published var todayAnchorPreview = "Bugün anchor yok"
+    @Published var observedResetText = "Not yet observed"
+    @Published var usageSourceText = "No source"
+    @Published var todayAnchorPreview = "No anchors today"
     @Published var adaptiveConfidence = "planned"
 
     private(set) var isSavingBackground = false
@@ -262,7 +262,7 @@ final class AppModel: ObservableObject {
             do {
                 _ = try await backend.command(arguments: ["usage"])
                 await refreshStatus(silent: true)
-                statusText = "Kullanım ve adaptif plan senkronize edildi."
+                statusText = "Usage and adaptive plan synchronized."
             } catch {
                 lastError = error.localizedDescription
                 statusText = error.localizedDescription
@@ -441,7 +441,7 @@ final class AppModel: ObservableObject {
                     formatter.timeZone = TimeZone(identifier: settings.timezone)
                     return formatter.string(from: date)
                 }
-                todayAnchorPreview = previews.isEmpty ? "Bugün anchor yok" : previews.joined(separator: " → ")
+                todayAnchorPreview = previews.isEmpty ? "No anchors today" : previews.joined(separator: " → ")
             }
         }
 

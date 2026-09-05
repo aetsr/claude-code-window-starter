@@ -368,7 +368,7 @@ class CalibrateTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 5. Run command — AppModel triggers this via "Şimdi çalıştır" button
+# 5. Run command — AppModel triggers this via the "Run now" button
 # ---------------------------------------------------------------------------
 class RunCommandTests(unittest.TestCase):
     def setUp(self) -> None:

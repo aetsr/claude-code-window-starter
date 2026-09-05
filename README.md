@@ -1,12 +1,10 @@
-# Claude Code 5-Hour Window Starter
+# Claude Window Starter
 
-Schedule a small Claude Code request before work to help align your 5-hour usage window with your workday.
-
-This macOS menu bar app is a Claude Code usage window scheduler and starter: it plans early requests, tracks usage reset information, and adapts later requests to an observed active window. See your schedule alongside 5h and weekly quota tracking, with optional Telegram control. If waiting for a usage limit to reset interrupts your day, starting legitimate usage earlier may make the next reset more useful.
+A macOS menu bar app that pre-starts and schedules Claude Code's 5-hour usage window around your working hours. It tracks 5-hour and weekly usage with reset countdowns, replans around observed active windows, and optionally provides Telegram remote control. If you want your Claude Code usage window to reset at a more useful time, scheduling a small early request can help — this app automates that.
 
 It does **not** increase quota, bypass Anthropic usage limits, reset server-side limits, or exploit authentication. Scheduled requests consume normal subscription usage. An already active window cannot be moved; Anthropic determines whether a request starts a new window and when it resets.
 
-[![CI](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml)
+[![CI](https://github.com/aetsr/claude-code-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-code-window-starter/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 <!-- Real screenshot TODO: capture the Automation tab with planner, observed
@@ -36,8 +34,8 @@ Requirements:
 - Standard macOS utilities including `curl`, `security`, `codesign`, and `launchctl`.
 
 ```bash
-git clone https://github.com/aetsr/claude-window-starter.git
-cd claude-window-starter
+git clone https://github.com/aetsr/claude-code-window-starter.git
+cd claude-code-window-starter
 claude auth login
 ./scripts/install-macos.sh
 ```
@@ -56,9 +54,9 @@ Without an output argument, `build-macos-app.sh` instead replaces the installed 
 
 ## Quick start
 
-1. Open the app and choose your IANA timezone, such as `Europe/Berlin`. Verify it explicitly; the example config uses `Europe/Istanbul`.
-2. In **Automation**, set and save your adaptive work hours. Defaults are weekdays, 08:00–17:00. Some labels currently use Turkish: `Yoğun başlangıç` / `Yoğun bitiş` are start/end; `Kaydet` means Save.
-3. Select `Şimdi senkronize et` (Sync now) to inspect usage and observed reset. Reads may reuse a cache for up to five minutes.
+1. Open the app and choose your IANA timezone, such as `Europe/Berlin`.
+2. In **Automation**, set and save your adaptive work hours (Work start / Work end). Defaults are weekdays, 08:00–17:00.
+3. Click **Sync now** to inspect usage and observed reset. Reads may reuse a cache for up to five minutes.
 4. Review today's planned requests, then enable **Automation**. Optional **Sleep prevention** requests that macOS keep the machine running; actual sleep still prevents execution.
 5. Keep the Mac online at the planned times. The launchd helper runs independently of the menu window.
 
@@ -94,7 +92,7 @@ If usage measurement fails, scheduling can proceed with estimated confidence. A 
 
 After installation, `./scripts/dry-run.sh` checks the request path without sending a real request. `./scripts/run-now.sh` sends your configured model/prompt; adaptive anchors always use fixed Haiku requests.
 
-Telegram is optional. Create a bot with [BotFather](https://t.me/BotFather), save its token in the **Telegram** tab, and complete the displayed pairing flow or configure numeric private user/chat allowlists. See [setup](docs/TELEGRAM.md). Many replies currently use Turkish.
+Telegram is optional. Create a bot with [BotFather](https://t.me/BotFather), save its token in the **Telegram** tab, and complete the displayed pairing flow or configure numeric private user/chat allowlists. See [setup](docs/TELEGRAM.md).
 
 | Purpose | Commands |
 | --- | --- |
@@ -140,7 +138,7 @@ Requests cannot run during actual sleep. Power assertions request sleep preventi
 
 ### Does it require the Anthropic API?
 
-No paid API key or API billing setup is required. Requests use your Claude Code subscription. Usage inspection contacts Anthropic's OAuth usage endpoint, with a CLI `/usage` fallback. “Claude API usage windows” would confuse subscription limits with API rate limits.
+No paid API key or API billing setup is required. Requests use your Claude Code subscription. Usage inspection contacts Anthropic's OAuth usage endpoint, with a CLI `/usage` fallback. "Claude API usage windows" would confuse subscription limits with API rate limits.
 
 ## Upgrade and uninstall
 

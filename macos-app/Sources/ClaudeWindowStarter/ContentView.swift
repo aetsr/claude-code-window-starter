@@ -152,51 +152,51 @@ struct ContentView: View {
                 // Adaptive five-hour planner
                 settingsCard {
                     HStack {
-                        Label("Dinamik 5 Saat Planlayıcısı", systemImage: "clock.arrow.2.circlepath")
+                        Label("Adaptive 5-Hour Planner", systemImage: "clock.arrow.2.circlepath")
                             .font(.subheadline).fontWeight(.semibold)
                         Spacer()
                         Toggle("", isOn: $model.settings.fiveHourEnabled).labelsHidden()
                     }
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Yoğun başlangıç").font(.caption).foregroundStyle(.secondary)
+                            Text("Work start").font(.caption).foregroundStyle(.secondary)
                             TextField("08:00", text: $model.settings.busyStartLocal)
                                 .textFieldStyle(.roundedBorder).frame(width: 90)
                         }
                         Image(systemName: "arrow.right").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Yoğun bitiş").font(.caption).foregroundStyle(.secondary)
+                            Text("Work end").font(.caption).foregroundStyle(.secondary)
                             TextField("17:00", text: $model.settings.busyEndLocal)
                                 .textFieldStyle(.roundedBorder).frame(width: 90)
                         }
                         Spacer()
-                        Button("Kaydet") {
+                        Button("Save") {
                             model.settings.fiveHourMode = "adaptive"
                             model.saveConfiguration()
                         }
                         .buttonStyle(.borderedProminent)
                     }
-                    Text("Hafta içi · Maksimum kota")
+                    Text("Weekdays · Maximum quota")
                         .font(.caption).foregroundStyle(.secondary)
                     Divider()
-                    LabeledContent("Bugünkü anchorlar", value: model.todayAnchorPreview)
-                    LabeledContent("Gözlenen gerçek reset", value: model.observedResetText)
-                    LabeledContent("Kaynak / tazelik", value: model.usageSourceText)
-                    LabeledContent("Plan güveni", value: model.adaptiveConfidence)
+                    LabeledContent("Today's anchors", value: model.todayAnchorPreview)
+                    LabeledContent("Observed reset", value: model.observedResetText)
+                    LabeledContent("Source / freshness", value: model.usageSourceText)
+                    LabeledContent("Plan confidence", value: model.adaptiveConfidence)
                     HStack {
-                        Button("Şimdi senkronize et") { model.syncUsage() }
+                        Button("Sync now") { model.syncUsage() }
                             .disabled(model.busy)
                         Spacer()
                     }
                     DisclosureGroup("Manuel override") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Claude penceresindeki kalan süreyi elle girerek sabit anchor kullanın.")
+                            Text("Enter the remaining time in your Claude window to use a fixed anchor.")
                                 .font(.caption).foregroundStyle(.secondary)
                             HStack {
-                                Stepper("\(model.fiveHourRemainingHours) sa", value: $model.fiveHourRemainingHours, in: 0...4)
-                                Stepper("\(model.fiveHourRemainingMinutes) dk", value: $model.fiveHourRemainingMinutes, in: 0...59)
+                                Stepper("\(model.fiveHourRemainingHours) h", value: $model.fiveHourRemainingHours, in: 0...4)
+                                Stepper("\(model.fiveHourRemainingMinutes) m", value: $model.fiveHourRemainingMinutes, in: 0...59)
                                 Spacer()
-                                Button("Manuel ayarla") {
+                                Button("Set manually") {
                                     model.settings.fiveHourMode = "manual"
                                     model.saveConfiguration()
                                     model.saveWindowAnchor("five_hour")

@@ -328,7 +328,7 @@ class TestConnectivityFlow(unittest.TestCase):
             ):
                 _run_capture("--home", tmp, "--json", "schedule", "--network-state", "online")
             self.assertEqual(len(notify_calls), 1)
-            self.assertIn("5 saatlik", notify_calls[0])
+            self.assertIn("5-hour", notify_calls[0])
 
     def test_calibrate_after_missed_clears_calibration_needed(self):
         """After offline-missed marking, recalibrate → calibration_needed cleared."""
@@ -593,7 +593,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             args = api.send_message.call_args[0]
             response = args[1]
             self.assertNotIn('"enabled":', response)
-            self.assertIn("Otomasyon", response)
+            self.assertIn("Automation", response)
 
     def test_usage_human_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -618,16 +618,14 @@ class TestTelegramBotResponses(unittest.TestCase):
             with mock.patch(
                 "claude_starter.telegram_bot.query_usage",
                 return_value={
-                    "formatted_text": (
-                        "📊 *Claude Kullanım Bilgisi*\n• 5h remaining 40%\n• Reset in 2h"
-                    )
+                    "formatted_text": ("📊 *Claude Usage*\n• 5h remaining 40%\n• Reset in 2h")
                 },
             ):
                 self._send(bot, "/usage")
             args = api.send_message.call_args[0]
             response = args[1]
             self.assertNotIn('"five_hour_window":', response)
-            self.assertIn("Kullanım", response)
+            self.assertIn("Usage", response)
 
     def test_last_no_run_human_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -636,7 +634,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             args = api.send_message.call_args[0]
             response = args[1]
             self.assertNotIn("{", response)
-            self.assertIn("Henüz", response)
+            self.assertIn("No runs yet", response)
 
     def test_users_list_human_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -645,7 +643,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             args = api.send_message.call_args[0]
             response = args[1]
             self.assertNotIn("[", response)
-            self.assertIn("Kullanıcı", response)
+            self.assertIn("User", response)
 
     def test_health_human_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -654,14 +652,14 @@ class TestTelegramBotResponses(unittest.TestCase):
             args = api.send_message.call_args[0]
             response = args[1]
             self.assertNotIn('"ok":', response)
-            self.assertIn("Sağlık", response)
+            self.assertIn("Health", response)
 
     def test_unauthorized_gets_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             bot, api, _ = self._bot_and_api(tmp)
             self._send(bot, "/status", user_id=999, chat_id=999)
             args = api.send_message.call_args[0]
-            self.assertIn("yetkiniz yok", args[1])
+            self.assertIn("not authorized", args[1])
 
     def test_help_is_string_not_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -736,7 +734,7 @@ class TestTelegramBotResponses(unittest.TestCase):
             with mock.patch("claude_starter.telegram_bot._run_calibrate_cli"):
                 self._send(bot, "/calibrate_5h", "14:30")
             args = api.send_message.call_args[0]
-            self.assertIn("kalibre", args[1])
+            self.assertIn("calibrated", args[1])
 
 
 # ===========================================================================
@@ -786,7 +784,7 @@ class TestUIInteractionLoops(unittest.TestCase):
             self.assertEqual(cfg2["windows"]["five_hour"]["anchor_iso"], "2026-07-25T10:00:00Z")
 
     def test_save_configuration_sequence(self):
-        """Simulate UI 'Kaydet' after editing prompt — anchor must survive."""
+        """Simulate UI 'Save' after editing prompt — anchor must survive."""
         with tempfile.TemporaryDirectory() as tmp:
             paths = _paths(tmp)
             cfg = dict(DEFAULT_CONFIG)

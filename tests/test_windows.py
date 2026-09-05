@@ -233,9 +233,9 @@ class WindowsTests(unittest.TestCase):
         now = datetime(2025, 1, 17, 10, 10, 0, tzinfo=timezone.utc)
         # Delta: 3 days + 4 hours + 20 minutes
         result = format_countdown(target, now)
-        self.assertIn("3g", result)
-        self.assertIn("4s", result)
-        self.assertIn("20dk", result)
+        self.assertIn("3d", result)
+        self.assertIn("4h", result)
+        self.assertIn("20m", result)
 
     def test_format_countdown_no_days(self) -> None:
         """Countdown with hours and minutes only."""
@@ -243,9 +243,9 @@ class WindowsTests(unittest.TestCase):
         now = datetime(2025, 1, 17, 10, 10, 0, tzinfo=timezone.utc)
         # Delta: 4 hours 20 minutes
         result = format_countdown(target, now)
-        self.assertIn("4s", result)
-        self.assertIn("20dk", result)
-        self.assertNotIn("g", result)
+        self.assertIn("4h", result)
+        self.assertIn("20m", result)
+        self.assertNotIn("d", result)
 
     def test_format_countdown_minutes_only(self) -> None:
         """Countdown with minutes only."""
@@ -253,21 +253,21 @@ class WindowsTests(unittest.TestCase):
         now = datetime(2025, 1, 17, 10, 10, 0, tzinfo=timezone.utc)
         # Delta: 35 minutes
         result = format_countdown(target, now)
-        self.assertEqual("35dk", result)
+        self.assertEqual("35m", result)
 
     def test_format_countdown_now(self) -> None:
-        """Countdown at exact time or in past returns 'Şimdi'."""
+        """Countdown at exact time or in past returns 'Now'."""
         target = datetime(2025, 1, 17, 10, 10, 0, tzinfo=timezone.utc)
         now = datetime(2025, 1, 17, 10, 10, 0, tzinfo=timezone.utc)
         result = format_countdown(target, now)
-        self.assertEqual("Şimdi", result)
+        self.assertEqual("Now", result)
 
     def test_format_countdown_past(self) -> None:
-        """Countdown in past returns 'Şimdi'."""
+        """Countdown in past returns 'Now'."""
         target = datetime(2025, 1, 17, 10, 0, 0, tzinfo=timezone.utc)
         now = datetime(2025, 1, 17, 10, 10, 0, tzinfo=timezone.utc)
         result = format_countdown(target, now)
-        self.assertEqual("Şimdi", result)
+        self.assertEqual("Now", result)
 
     def test_format_countdown_zero_hours_shown(self) -> None:
         """If hours or days are zero, they're not shown."""
@@ -275,9 +275,9 @@ class WindowsTests(unittest.TestCase):
         now = datetime(2025, 1, 17, 10, 0, 0, tzinfo=timezone.utc)
         # Delta: 35 minutes (0 days, 0 hours)
         result = format_countdown(target, now)
-        self.assertEqual("35dk", result)
-        self.assertNotIn("g", result)
-        self.assertNotIn("s", result)
+        self.assertEqual("35m", result)
+        self.assertNotIn("d", result)
+        self.assertNotIn("h", result)
 
     def test_dst_safe_utc_anchor(self) -> None:
         """UTC anchor is not affected by DST transitions."""

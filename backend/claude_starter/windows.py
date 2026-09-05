@@ -155,9 +155,9 @@ def format_countdown(target: datetime, now: datetime | None = None) -> str:
     """Format countdown text for display.
 
     Example outputs:
-    - "3g 4s 17dk" (3 days, 4 hours, 17 minutes)
-    - "45dk" (45 minutes)
-    - "Şimdi" (now or in past)
+    - "3d 4h 17m" (3 days, 4 hours, 17 minutes)
+    - "45m" (45 minutes)
+    - "Now" (now or in past)
 
     Args:
         target: Target datetime (UTC)
@@ -171,7 +171,7 @@ def format_countdown(target: datetime, now: datetime | None = None) -> str:
 
     delta = target - now
     if delta.total_seconds() <= 0:
-        return "Şimdi"
+        return "Now"
 
     total_seconds = int(delta.total_seconds())
     days, remainder = divmod(total_seconds, 86400)
@@ -180,10 +180,10 @@ def format_countdown(target: datetime, now: datetime | None = None) -> str:
 
     parts = []
     if days:
-        parts.append(f"{days}g")
+        parts.append(f"{days}d")
     if hours:
-        parts.append(f"{hours}s")
+        parts.append(f"{hours}h")
     if minutes or not parts:
-        parts.append(f"{minutes}dk")
+        parts.append(f"{minutes}m")
 
     return " ".join(parts)

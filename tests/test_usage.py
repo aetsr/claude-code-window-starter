@@ -76,6 +76,25 @@ class FakePtyProcess:
 
 
 class UsageTests(unittest.TestCase):
+    def test_oauth_header_uses_stdin_not_process_arguments(self) -> None:
+        token = "synthetic-oauth-regression-value"
+        response = mock.Mock(returncode=0, stdout='{"five_hour": {"utilization": 5}}')
+        with mock.patch("claude_starter.usage.subprocess.run", return_value=response) as run:
+            result = usage._query_usage_api(token)
+        self.assertIsNotNone(result)
+        argv = run.call_args.args[0]
+        self.assertNotIn(token, " ".join(argv))
+        self.assertEqual(argv[:2], ["/usr/bin/curl", "--disable"])
+        self.assertIn("@-", argv)
+        self.assertEqual(run.call_args.kwargs["input"], f"Authorization: Bearer {token}\n")
+        self.assertNotIn("env", run.call_args.kwargs)
+
+    def test_oauth_header_injection_rejected_without_subprocess(self) -> None:
+        with mock.patch("claude_starter.usage.subprocess.run") as run:
+            for token in ("", "token\nX-Leak: value", "token\r", "token\x00", "token secret"):
+                self.assertIsNone(usage._query_usage_api(token))
+        run.assert_not_called()
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.paths = AppPaths(Path(self.temporary.name))
@@ -169,7 +188,7 @@ class UsageTests(unittest.TestCase):
         message = format_usage_message(
             "Current session\n40% used\nResets in 2h\nCurrent week\n82% used\nResets Monday"
         )
-        self.assertIn("Claude Kullanım Bilgisi", message)
+        self.assertIn("Claude Usage", message)
         self.assertIn("• 40% used", message)
         self.assertNotIn("*", message)
         self.assertNotIn("/usage", message)

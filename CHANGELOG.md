@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Discoverability and release preparation
+### English-only and discoverability
+- Translate all user-facing text to English: Telegram bot messages, SwiftUI labels, CLI notifications, usage output, error messages, and confirmation buttons.
+- Remove dual DE/TR timezone display from usage output; use the configured timezone.
+- Rewrite README for SEO: target queries like "Claude Code 5-hour window scheduler" and "Claude Code warmup".
+- Add `llms.txt` and social-preview asset for AI assistant and search engine discovery.
+- Prepare all links for repo rename to `claude-code-window-starter`.
 - Position the README around Claude Code five-hour window scheduling and legitimate early requests.
 - Document actual dependencies, cache behavior, installation/rollback limitations, and non-bypass/affiliation disclaimers.
 - Add launch copy, screenshot guidance, discoverability audit, release notes template and a draft artifact workflow.
@@ -23,7 +28,7 @@ the 2026-09-05 audit. They remain unreleased pending version reconciliation.
 - **OAuth Usage API** — queries `api.anthropic.com/api/oauth/usage`, with CLI PTY fallback when unavailable
 - OAuth token auto-discovery from macOS Keychain (`Claude Code-credentials`)
 - Usage result caching (300 s) to avoid redundant API calls
-- Dual timezone display — primary Europe/Berlin with secondary Europe/Istanbul (e.g. `21:10 DE / 22:10 TR`)
+- Dual timezone display — primary Europe/Berlin with secondary Europe/Istanbul (removed in favor of single configured timezone)
 
 ### Changed
 - Default timezone switched from Europe/Istanbul to Europe/Berlin
@@ -32,9 +37,9 @@ the 2026-09-05 audit. They remain unreleased pending version reconciliation.
 - README rewritten with architecture diagram, feature table, and project structure
 
 ### Fixed
-- "Şimdi Senkronize Et" (Sync Now) can use the OAuth path before PTY fallback; latency depends on cache/network/service availability
+- "Sync now" can use the OAuth path before PTY fallback; latency depends on cache/network/service availability
 - PTY startup fallback timer increased from 3 s to 6 s for trust dialog edge cases
-- Telegram bot messages now show both DE and TR times
+- Telegram bot messages use the configured timezone
 
 ## 2.1.0 — 2026-08-26
 
@@ -82,9 +87,9 @@ the 2026-09-05 audit. They remain unreleased pending version reconciliation.
 ### Changed
 - Architecture simplified from v1 automation modes to window-based scheduling
 - Schema updated to v3 (removed v1/v2 fields from config and state)
-- Telegram responses changed from JSON/raw to human-readable Turkish messages
+- Telegram responses changed from JSON/raw to human-readable messages
 - UI simplified to 2 tabs (Configuration + Maintenance)
-- All Turkish strings internationalized to English across backend, Swift app, and docs
+- Window-based architecture replacing v1 automation modes
 - README rewritten with badges, tables, and full feature documentation
 - License added (Apache 2.0)
 
@@ -114,4 +119,4 @@ the 2026-09-05 audit. They remain unreleased pending version reconciliation.
 - Telegram bot with basic command support
 - Atomic release switching
 
-[Unreleased]: https://github.com/aetsr/claude-window-starter/commits/main
+[Unreleased]: https://github.com/aetsr/claude-code-window-starter/commits/main

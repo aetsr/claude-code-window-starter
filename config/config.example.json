@@ -2,7 +2,7 @@
   "schema_version": 4,
   "enabled": false,
   "background_enabled": false,
-  "timezone": "Europe/Istanbul",
+  "timezone": "Europe/Berlin",
   "model": "auto",
   "prompt": "Respond with OK.",
   "timeout_seconds": 120,

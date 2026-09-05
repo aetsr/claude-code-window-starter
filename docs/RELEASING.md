@@ -30,7 +30,7 @@ Run `./scripts/build-local.sh` and CI quality checks on a clean committed revisi
 1. Package the Python backend and a relocatable Python runtime, or provide a complete installer that validates an external Python and creates the backend/LaunchAgents. Copying a development virtualenv is not portable. Bundling Python is feasible, but requires architecture-specific runtime updates, license notices and signing all nested executable code.
 2. Fix shell installation staging and rollback: it currently marks the manifest healthy and switches `current` before the Swift build, and has no post-health rollback. Backend symlink rollback does not restore the app or restart all services onto the selected backend. Test failure recovery before claiming atomic upgrades.
 3. Review OAuth bearer headers in `curl` argv, broad Telegram Keychain ACLs, and changes to the usage endpoint before a broad launch. See [SECURITY.md](../SECURITY.md). No credential behavior was changed by the audit.
-4. Validate clean install, upgrade, uninstall, auth, cache behavior and sleep/wake on the claimed architectures/macOS versions. The mixed English/Turkish interface also needs a localization decision.
+4. Validate clean install, upgrade, uninstall, auth, cache behavior and sleep/wake on the claimed architectures/macOS versions. The interface is now English-only.
 5. Add Developer ID signing/notarization for a normal trusted public download, plus actual screenshots and release notes.
 
 ## Signing/notarization structure to add after packaging

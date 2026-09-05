@@ -21,46 +21,46 @@ from .usage import query_usage
 
 WELCOME = (
     "🤖 *Claude Window Starter*\n\n"
-    "Merhaba\\! Bu bot, Claude Code abonelik isteklerinizi\n"
-    "5 saatlik kullanım pencerelerinde otomatik olarak yönetir\\.\n\n"
-    "Başlamak için:\n"
-    "• /status — Mevcut durumu görüntüle\n"
-    "• /automation\\_on — Otomasyonu etkinleştir\n"
-    "• /help — Tüm komutları listele"
+    "This bot manages your Claude Code subscription requests\n"
+    "by scheduling them around 5\\-hour usage windows\\.\n\n"
+    "Get started:\n"
+    "• /status — View current status\n"
+    "• /automation\\_on — Enable automation\n"
+    "• /help — List all commands"
 )
 
 HELP = """🤖 *Claude Window Starter*
 
-📊 *Durum*
-/status — Sistem durumu ve pencere bilgisi
-/usage — Kullanım bilgisini getir
-/sync_usage — Kullanımı yeniden ölç ve planı güncelle
-/schedule — Sonraki çalışma zamanları
-/last — Son çalışma detayı
-/health — Sağlık kontrolü
-/logs — Son kayıtlar
-/ping — Bot canlılık kontrolü
+📊 *Status*
+/status — System status and window info
+/usage — Fetch usage info
+/sync_usage — Re\\-measure usage and update plan
+/schedule — Upcoming scheduled actions
+/last — Last run details
+/health — Health check
+/logs — Recent logs
+/ping — Bot liveness check
 
-⚡ *Otomasyon*
-/run — Claude çalıştır (onay ister)
-/dryrun — Kuru çalışma (gerçek istek yok)
-/automation\\_on / /automation\\_off — Otomasyonu aç/kapat
-/sleep\\_on / /sleep\\_off — Uyku engellemeyi aç/kapat
+⚡ *Automation*
+/run — Run Claude (requires confirmation)
+/dryrun — Dry run (no real request)
+/automation\\_on / /automation\\_off — Toggle automation
+/sleep\\_on / /sleep\\_off — Toggle sleep prevention
 
-🗓 *Kalibrasyon*
-/calibrate\\_5h HH:MM — 5 saatlik pencereyi ayarla
+🗓 *Calibration*
+/calibrate\\_5h HH:MM — Calibrate 5\\-hour window
 /calibrate\\_weekly YYYY\\-MM\\-DD HH:MM
 
-⚙️ *Ayarlar*
+⚙️ *Settings*
 /setmodel <auto|haiku|sonnet|opus>
-/setprompt <metin>
+/setprompt <text>
 /settimezone <iana>
-/workhours HH:MM HH:MM — Yoğun çalışma aralığını ayarla
+/workhours HH:MM HH:MM — Set work hours
 
-👥 *Kullanıcı Yönetimi*
-/users — Yetkili kullanıcıları listele
-/adduser <id> — Kullanıcı ekle
-/removeuser <id> — Kullanıcı kaldır"""
+👥 *User Management*
+/users — List authorized users
+/adduser <id> — Add user
+/removeuser <id> — Remove user"""
 
 _ALIASES: dict[str, str] = {
     "/next": "/schedule",
@@ -76,25 +76,25 @@ def _md_escape(s: str) -> str:
 
 
 def _fmt_dt(dt: Any, tz_name: str = "UTC") -> str:
-    """Format a datetime or ISO string to human-readable Turkish format."""
+    """Format a datetime or ISO string to human-readable format."""
     from zoneinfo import ZoneInfo
 
     MONTHS = [
-        "Ocak",
-        "Şubat",
-        "Mart",
-        "Nisan",
-        "Mayıs",
-        "Haziran",
-        "Temmuz",
-        "Ağustos",
-        "Eylül",
-        "Ekim",
-        "Kasım",
-        "Aralık",
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
     ]
     if dt is None:
-        return "bilinmiyor"
+        return "unknown"
     if isinstance(dt, str):
         try:
             from .windows import _parse_iso
@@ -106,12 +106,7 @@ def _fmt_dt(dt: Any, tz_name: str = "UTC") -> str:
         local = dt.astimezone(ZoneInfo(tz_name))
         month = MONTHS[local.month - 1]
         place = tz_name.split("/")[-1]
-        base = f"{local.day} {month} {local.year}, {local.strftime('%H:%M')} ({place})"
-        # Also show Turkey time when primary timezone is not Istanbul.
-        if tz_name != "Europe/Istanbul":
-            tr = dt.astimezone(ZoneInfo("Europe/Istanbul"))
-            base += f" / {tr.strftime('%H:%M')} TR"
-        return base
+        return f"{month} {local.day}, {local.year}, {local.strftime('%H:%M')} ({place})"
     except Exception:
         return str(dt)[:16]
 
@@ -173,8 +168,8 @@ class TelegramBot:
         return {
             "inline_keyboard": [
                 [
-                    {"text": "✅ Onayla", "callback_data": f"confirm:{nonce}"},
-                    {"text": "❌ İptal", "callback_data": f"cancel:{nonce}"},
+                    {"text": "✅ Confirm", "callback_data": f"confirm:{nonce}"},
+                    {"text": "❌ Cancel", "callback_data": f"cancel:{nonce}"},
                 ]
             ]
         }
@@ -201,14 +196,14 @@ class TelegramBot:
             )
             self.api.send_message(
                 chat_id,
-                "Bu komut için yetkiniz yok.",
+                "You are not authorized for this command.",
                 auto_parse_mode=False,
             )
             return
         if not self._rate_allowed(user_id):
             self.api.send_message(
                 chat_id,
-                "Lütfen birkaç saniye sonra tekrar deneyin.",
+                "Please wait a few seconds and try again.",
                 auto_parse_mode=False,
             )
             return
@@ -250,7 +245,7 @@ class TelegramBot:
             )
             self.api.send_message(
                 chat_id,
-                "Bir hata oluştu. Lütfen tekrar deneyin.",
+                "An error occurred. Please try again.",
                 auto_parse_mode=False,
             )
 
@@ -269,75 +264,74 @@ class TelegramBot:
             from zoneinfo import ZoneInfo
 
             now = datetime.now(ZoneInfo(self.config.get("timezone", "UTC")))
-            return f"pong — {now.strftime('%d.%m.%Y %H:%M')}", None
+            return f"pong — {now.strftime('%Y-%m-%d %H:%M')}", None
         if command == "/status":
             return self._cmd_status(state), None
         if command == "/stop":
             service_action("background", "stop")
             self.config["enabled"] = False
             save_config(self.paths, self.config)
-            return "⏹ Otomasyon devre dışı bırakıldı ve arka plan servisi durduruldu.", None
+            return "⏹ Automation disabled and background service stopped.", None
         if command == "/restart":
             service_action("background", "restart")
-            return "♻️ Arka plan servisi yeniden başlatıldı.", None
+            return "♻️ Background service restarted.", None
         if command == "/run":
             return (
-                "🤖 Claude Code çalıştırılsın mı? "
-                "Abonelik kotasını kullanan gerçek bir istek gönderilecek.",
+                "🤖 Run Claude Code? This will send a real request that uses subscription quota.",
                 self._confirmation(user_id, chat_id, "run"),
             )
         if command == "/automation_on":
             self.config["enabled"] = True
             save_config(self.paths, self.config)
-            return "✅ Otomasyon etkinleştirildi.", None
+            return "✅ Automation enabled.", None
         if command == "/automation_off":
             self.config["enabled"] = False
             save_config(self.paths, self.config)
-            return "⏸ Otomasyon devre dışı bırakıldı.", None
+            return "⏸ Automation disabled.", None
         if command in {"/background_on", "/sleep_on"}:
             self.config["background_enabled"] = True
             save_config(self.paths, self.config)
-            return "🌙 Uyku engelleme modu etkinleştirildi.", None
+            return "🌙 Sleep prevention enabled.", None
         if command in {"/background_off", "/sleep_off"}:
             self.config["background_enabled"] = False
             save_config(self.paths, self.config)
-            return "☀️ Uyku engelleme modu kapatıldı.", None
+            return "☀️ Sleep prevention disabled.", None
         if command == "/usage":
             return query_usage(self.paths, self.config).get(
-                "formatted_text", "Claude kullanım bilgisi alınamadı."
+                "formatted_text", "Could not retrieve Claude usage info."
             ), None
         if command == "/sync_usage":
             usage = query_usage(self.paths, self.config)
             schedule = schedule_snapshot(self.paths, self.config)
             next_at = _fmt_dt(schedule.get("next_action_at"), self.config["timezone"])
             return (
-                f"{usage.get('formatted_text', 'Kullanım senkronize edildi.')}\n\n"
-                f"Plan güveni: {schedule['confidence']}\nSonraki eylem: {next_at}"
+                f"{usage.get('formatted_text', 'Usage synchronized.')}\n\n"
+                f"Plan confidence: {schedule['confidence']}\nNext action: {next_at}"
             ), None
         if command == "/maintenance":
             health = health_report(self.paths)
             diag = diagnose(self.paths)
-            ok = "✅ Sağlıklı" if health.get("ok") else "⚠️ Sorun var"
+            ok = "✅ Healthy" if health.get("ok") else "⚠️ Issues found"
             issues = [
                 k
                 for k, v in health.get("checks", {}).items()
                 if isinstance(v, dict) and not v.get("ok", True)
             ]
             issues_str = ", ".join(issues) if issues else "—"
-            return f"🔧 *Bakım Raporu*\nSağlık: {ok}\nSorunlar: {_md_escape(issues_str)}", None
+            return f"🔧 *Maintenance Report*\nHealth: {ok}\nIssues: {_md_escape(issues_str)}", None
         if command == "/dryrun":
             kickstart_local_job("dry")
-            return "🧪 Kuru çalışma başlatıldı — Claude'a gerçek istek gönderilmeyecek.", None
+            return "🧪 Dry run started — no real request will be sent to Claude.", None
         if command == "/diagnose":
             diag = diagnose(self.paths)
-            lines = ["🔍 *Teşhis*"]
+            lines = ["🔍 *Diagnostics*"]
             for k, v in diag.items():
                 lines.append(f"  • {k}: {v}")
             return "\n".join(lines[:20]), None
         if command == "/health":
             health = health_report(self.paths)
-            ok = "✅ Sağlıklı" if health.get("ok") else "⚠️ Sorun var"
-            lines = [f"💚 Sağlık: {ok}"]
+            ok = "✅ Healthy" if health.get("ok") else "⚠️ Issues found"
+            lines = [f"💚 Health: {ok}"]
             for k, v in health.get("checks", {}).items():
                 if isinstance(v, dict):
                     status = "✅" if v.get("ok", False) else "❌"
@@ -347,21 +341,21 @@ class TelegramBot:
             schedule = schedule_snapshot(self.paths, self.config)
             busy = schedule["busy_period"]
             lines = [
-                "📅 *Adaptif Plan*",
+                "📅 *Adaptive Plan*",
                 (
-                    f"Yoğun aralık: {busy['start_local']}–{busy['end_local']} "
+                    f"Work hours: {busy['start_local']}–{busy['end_local']} "
                     f"({_md_escape(busy['timezone'])})"
                 ),
-                f"Durum: {_md_escape(str(schedule['status']))}",
-                f"Güven: {_md_escape(str(schedule['confidence']))}",
+                f"Status: {_md_escape(str(schedule['status']))}",
+                f"Confidence: {_md_escape(str(schedule['confidence']))}",
             ]
             observed = schedule.get("observed_window")
             if isinstance(observed, dict) and observed.get("resets_at"):
                 display = _fmt_dt(observed["resets_at"], self.config["timezone"])
-                lines.append(f"Gözlenen reset: {_md_escape(display)}")
+                lines.append(f"Observed reset: {_md_escape(display)}")
             actions = schedule.get("today_actions", [])
             if actions:
-                lines.append("Bugünkü anchorlar:")
+                lines.append("Today's anchors:")
                 for action in actions:
                     marker = "✓" if action.get("status") != "planned" else "•"
                     display = _fmt_dt(action.get("scheduled_at"), self.config["timezone"])
@@ -370,19 +364,19 @@ class TelegramBot:
                         f"{_md_escape(str(action.get('status')))}"
                     )
             else:
-                lines.append("Bugün planlı anchor yok.")
+                lines.append("No anchors planned for today.")
             next_display = _fmt_dt(schedule.get("next_action_at"), self.config["timezone"])
-            lines.append(f"Sonraki: {_md_escape(next_display)}")
+            lines.append(f"Next: {_md_escape(next_display)}")
             return "\n".join(lines), None
         if command == "/workhours":
             parts = argument.split()
             if len(parts) != 2 or not all(_is_valid_time(value) for value in parts):
-                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /workhours HH:MM HH:MM")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /workhours HH:MM HH:MM")
             start, end = parts
             if datetime.strptime(start, "%H:%M") >= datetime.strptime(end, "%H:%M"):
                 raise AppError(
                     ErrorCode.CONFIG_INVALID,
-                    "Başlangıç bitişten önce olmalı; gece yarısını geçen aralık desteklenmiyor.",
+                    "Start must be before end; overnight ranges are not supported.",
                 )
             five_hour = self.config["windows"]["five_hour"]
             five_hour["mode"] = "adaptive"
@@ -393,129 +387,119 @@ class TelegramBot:
             schedule = schedule_snapshot(self.paths, self.config)
             next_display = _fmt_dt(schedule.get("next_action_at"), self.config["timezone"])
             return (
-                f"✅ Yoğun çalışma aralığı {start}–{end} olarak güncellendi.\n"
-                f"Hafta içi / Maksimum kota\nSonraki anchor: {next_display}"
+                f"✅ Work hours updated to {start}–{end}.\n"
+                f"Weekdays · Maximum quota\nNext anchor: {next_display}"
             ), None
         if command == "/timezone":
-            return f"🌍 Zaman dilimi: *{self.config['timezone']}*", None
+            return f"🌍 Timezone: *{self.config['timezone']}*", None
         if command == "/settimezone":
             from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
             try:
                 ZoneInfo(argument)
             except ZoneInfoNotFoundError as exc:
-                raise AppError(ErrorCode.CONFIG_INVALID, "Geçersiz IANA zaman dilimi") from exc
+                raise AppError(ErrorCode.CONFIG_INVALID, "Invalid IANA timezone") from exc
             self.config["timezone"] = argument
             save_config(self.paths, self.config)
-            return f"✅ Zaman dilimi *{_md_escape(argument)}* olarak güncellendi.", None
+            return f"✅ Timezone updated to *{_md_escape(argument)}*.", None
         if command == "/background":
             if argument not in {"on", "off"}:
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Kullanım: /background on veya /background off"
-                )
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /background on or /background off")
             self.config["background_enabled"] = argument == "on"
             save_config(self.paths, self.config)
             return (
-                "🌙 Uyku engelleme etkinleştirildi."
+                "🌙 Sleep prevention enabled."
                 if self.config["background_enabled"]
-                else "☀️ Uyku engelleme kapatıldı."
+                else "☀️ Sleep prevention disabled."
             ), None
         if command == "/last":
             last = state.get("last_run")
             if not isinstance(last, dict):
-                return "ℹ️ Henüz çalışma yok", None
+                return "ℹ️ No runs yet.", None
             status_icon = "✅" if last.get("status") == "success" else "❌"
             model = last.get("selected_model", "?")
             trigger = last.get("trigger_source", "?")
             time_str = str(last.get("trigger_time", "?"))[:16]
             return (
-                f"{status_icon} *Son Çalışma*\n"
-                f"Zaman: {_md_escape(time_str)}\n"
+                f"{status_icon} *Last Run*\n"
+                f"Time: {_md_escape(time_str)}\n"
                 f"Model: {_md_escape(str(model))}\n"
-                f"Tetikleyici: {_md_escape(str(trigger))}",
+                f"Trigger: {_md_escape(str(trigger))}",
                 None,
             )
         if command == "/logs":
             return "\n".join(tail_sanitized(self.paths.log_file, 15)) or "No logs.", None
         if command == "/model":
-            return f"🤖 Aktif model: *{self.config['model']}*", None
+            return f"🤖 Active model: *{self.config['model']}*", None
         if command == "/setmodel":
             if argument not in {"auto", "haiku", "sonnet", "opus"}:
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Geçerli modeller: auto, haiku, sonnet, opus"
-                )
+                raise AppError(ErrorCode.CONFIG_INVALID, "Valid models: auto, haiku, sonnet, opus")
             self.config["model"] = argument
             save_config(self.paths, self.config)
-            return f"✅ Model *{_md_escape(argument)}* olarak ayarlandı.", None
+            return f"✅ Model set to *{_md_escape(argument)}*.", None
         if command == "/prompt":
-            return f"📝 Mevcut prompt:\n\n{self.config['prompt'][:400]}", None
+            return f"📝 Current prompt:\n\n{self.config['prompt'][:400]}", None
         if command == "/setprompt":
             if not argument or len(argument) > int(self.telegram["max_prompt_length"]):
-                raise AppError(ErrorCode.CONFIG_INVALID, "Prompt boş veya çok uzun.")
-            return f"📝 Prompt şununla değiştirilsin mi?\n\n_{argument[:200]}_", self._confirmation(
+                raise AppError(ErrorCode.CONFIG_INVALID, "Prompt is empty or too long.")
+            return f"📝 Change prompt to?\n\n_{argument[:200]}_", self._confirmation(
                 user_id, chat_id, "setprompt", argument
             )
         if command == "/timer":
             try:
                 service_action("background", "status")
-                return "✅ Arka plan servisi çalışıyor.", None
+                return "✅ Background service is running.", None
             except AppError:
-                return "❌ Arka plan servisi çalışmıyor.", None
+                return "❌ Background service is not running.", None
         if command == "/users":
             uids = self.telegram.get("allowed_user_ids", [])
             cids = self.telegram.get("allowed_chat_ids", [])
-            user_lines = "\n".join(f"  • {u}" for u in uids) if uids else "  • Yok"
-            chat_lines = "\n".join(f"  • {c}" for c in cids) if cids else "  • Yok"
+            user_lines = "\n".join(f"  • {u}" for u in uids) if uids else "  • None"
+            chat_lines = "\n".join(f"  • {c}" for c in cids) if cids else "  • None"
             return (
-                f"👥 *Yetkili Kullanıcılar*\n{user_lines}\n\n💬 *Yetkili Sohbetler*\n{chat_lines}",
+                f"👥 *Authorized Users*\n{user_lines}\n\n💬 *Authorized Chats*\n{chat_lines}",
                 None,
             )
         if command == "/adduser":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Kullanım: /adduser <sayısal kullanıcı ID>"
-                )
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /adduser <numeric user ID>")
             uid = int(argument.strip())
             ids = self.config["telegram"].setdefault("allowed_user_ids", [])
             if uid not in ids:
                 ids.append(uid)
                 save_config(self.paths, self.config)
-                return f"✅ Kullanıcı {uid} eklendi.", None
-            return f"ℹ️ Kullanıcı {uid} zaten yetkili.", None
+                return f"✅ User {uid} added.", None
+            return f"ℹ️ User {uid} is already authorized.", None
         if command == "/removeuser":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Kullanım: /removeuser <sayısal kullanıcı ID>"
-                )
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /removeuser <numeric user ID>")
             uid = int(argument.strip())
             ids = self.config["telegram"].get("allowed_user_ids", [])
             if uid in ids:
                 self.config["telegram"]["allowed_user_ids"] = [x for x in ids if x != uid]
                 save_config(self.paths, self.config)
-                return f"🗑 Kullanıcı {uid} kaldırıldı.", None
-            return f"ℹ️ Kullanıcı {uid} listede değildi.", None
+                return f"🗑 User {uid} removed.", None
+            return f"ℹ️ User {uid} was not in the list.", None
         if command == "/addchat":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(ErrorCode.CONFIG_INVALID, "Kullanım: /addchat <sayısal sohbet ID>")
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /addchat <numeric chat ID>")
             cid = int(argument.strip())
             ids = self.config["telegram"].setdefault("allowed_chat_ids", [])
             if cid not in ids:
                 ids.append(cid)
                 save_config(self.paths, self.config)
-                return f"✅ Sohbet {cid} eklendi.", None
-            return f"ℹ️ Sohbet {cid} zaten yetkili.", None
+                return f"✅ Chat {cid} added.", None
+            return f"ℹ️ Chat {cid} is already authorized.", None
         if command == "/removechat":
             if not argument.strip().lstrip("-").isdigit():
-                raise AppError(
-                    ErrorCode.CONFIG_INVALID, "Kullanım: /removechat <sayısal sohbet ID>"
-                )
+                raise AppError(ErrorCode.CONFIG_INVALID, "Usage: /removechat <numeric chat ID>")
             cid = int(argument.strip())
             ids = self.config["telegram"].get("allowed_chat_ids", [])
             if cid in ids:
                 self.config["telegram"]["allowed_chat_ids"] = [x for x in ids if x != cid]
                 save_config(self.paths, self.config)
-                return f"🗑 Sohbet {cid} kaldırıldı.", None
-            return f"ℹ️ Sohbet {cid} listede değildi.", None
+                return f"🗑 Chat {cid} removed.", None
+            return f"ℹ️ Chat {cid} was not in the list.", None
         if command == "/calibrate_5h":
             return self._calibrate_window("five_hour", argument, user_id, chat_id)
         if command == "/calibrate_weekly":
@@ -524,9 +508,7 @@ class TelegramBot:
             from . import __version__
 
             return f"ℹ️ Claude Window Starter *{__version__}*", None
-        raise AppError(
-            ErrorCode.CONFIG_INVALID, "Bilinmeyen komut — /help ile komut listesini görüntüle"
-        )
+        raise AppError(ErrorCode.CONFIG_INVALID, "Unknown command — use /help to list commands")
 
     def _calibrate_window(
         self, window_type: str, argument: str, user_id: int, chat_id: int
@@ -538,7 +520,7 @@ class TelegramBot:
             wname = window_type.split("_")[0]
             raise AppError(
                 ErrorCode.CONFIG_INVALID,
-                f"Kullanım: /calibrate_{wname} HH:MM veya YYYY-MM-DD HH:MM",
+                f"Usage: /calibrate_{wname} HH:MM or YYYY-MM-DD HH:MM",
             )
 
         parts = argument.strip().split()
@@ -573,19 +555,17 @@ class TelegramBot:
             # Get updated next_run_at
             next_window = next_runs(self.paths, self.config)
             next_at = next_window.get(window_type)
-            label = "5 saatlik" if window_type == "five_hour" else "Haftalık"
+            label = "5-hour" if window_type == "five_hour" else "Weekly"
             user_tz = self.config.get("timezone", "UTC")
-            next_display = _fmt_dt(next_at, user_tz) if next_at else "hesaplanamadı"
+            next_display = _fmt_dt(next_at, user_tz) if next_at else "could not be calculated"
             anchor_display = _fmt_dt(anchor_iso, user_tz)
             return (
-                f"✅ *{label} pencere kalibre edildi*\n"
-                f"Başlangıç: {anchor_display}\n"
-                f"Sonraki çalışma: {next_display}"
+                f"✅ *{label} window calibrated*\nStart: {anchor_display}\nNext run: {next_display}"
             ), None
         except ValueError as exc:
             raise AppError(
                 ErrorCode.CONFIG_INVALID,
-                f"Geçersiz zaman formatı: {exc}",
+                f"Invalid time format: {exc}",
             ) from exc
 
     def _handle_callback(self, callback: dict[str, Any]) -> None:
@@ -627,14 +607,14 @@ class TelegramBot:
             lambda current: current.setdefault("telegram_confirmations", {}).pop(nonce, None),
         )
         if not valid or decision not in {"confirm", "cancel"}:
-            self.api.answer_callback(callback_id, "⏱ Süre doldu")
+            self.api.answer_callback(callback_id, "⏱ Expired")
             if message_id:
-                self.api.edit_message_text(chat_id, message_id, "⏱ Süre doldu.")
+                self.api.edit_message_text(chat_id, message_id, "⏱ Expired.")
             return
         if decision == "cancel":
-            self.api.answer_callback(callback_id, "❌ İptal edildi")
+            self.api.answer_callback(callback_id, "❌ Cancelled")
             if message_id:
-                self.api.edit_message_text(chat_id, message_id, "❌ İptal edildi.")
+                self.api.edit_message_text(chat_id, message_id, "❌ Cancelled.")
             return
         action = str(confirmation["action"])
         if action == "run":
@@ -643,7 +623,7 @@ class TelegramBot:
             config = load_config(self.paths, create=True)
             config["prompt"] = str(confirmation.get("value", ""))
             save_config(self.paths, config)
-        result_text = "🚀 Başlatıldı" if action == "run" else "✅ Güncellendi"
+        result_text = "🚀 Started" if action == "run" else "✅ Updated"
         self.api.answer_callback(callback_id, result_text)
         if message_id:
             self.api.edit_message_text(chat_id, message_id, f"{result_text}.")
@@ -657,35 +637,35 @@ class TelegramBot:
         try:
             self.api.set_my_commands(
                 [
-                    {"command": "status", "description": "Sistem durumu ve pencere bilgisi"},
-                    {"command": "run", "description": "Claude çalıştır (onay ister)"},
-                    {"command": "usage", "description": "Claude kullanım bilgisini getir"},
-                    {"command": "sync_usage", "description": "Kullanımı ölç ve planı güncelle"},
-                    {"command": "schedule", "description": "Sonraki çalışma zamanları"},
-                    {"command": "workhours", "description": "Yoğun çalışma saatlerini ayarla"},
-                    {"command": "last", "description": "Son çalışma detayı"},
-                    {"command": "health", "description": "Sağlık kontrolü"},
-                    {"command": "logs", "description": "Son kayıtlar"},
-                    {"command": "ping", "description": "Bot canlılık kontrolü"},
-                    {"command": "automation_on", "description": "Otomasyonu etkinleştir"},
-                    {"command": "automation_off", "description": "Otomasyonu devre dışı bırak"},
-                    {"command": "sleep_on", "description": "Uyku engellemeyi aç"},
-                    {"command": "sleep_off", "description": "Uyku engellemeyi kapat"},
-                    {"command": "calibrate_5h", "description": "5 saatlik pencereyi kalibre et"},
-                    {"command": "calibrate_weekly", "description": "Haftalık pencereyi kalibre et"},
-                    {"command": "users", "description": "Yetkili kullanıcıları listele"},
+                    {"command": "status", "description": "System status and window info"},
+                    {"command": "run", "description": "Run Claude (requires confirmation)"},
+                    {"command": "usage", "description": "Fetch Claude usage info"},
+                    {"command": "sync_usage", "description": "Measure usage and update plan"},
+                    {"command": "schedule", "description": "Upcoming scheduled actions"},
+                    {"command": "workhours", "description": "Set work hours"},
+                    {"command": "last", "description": "Last run details"},
+                    {"command": "health", "description": "Health check"},
+                    {"command": "logs", "description": "Recent logs"},
+                    {"command": "ping", "description": "Bot liveness check"},
+                    {"command": "automation_on", "description": "Enable automation"},
+                    {"command": "automation_off", "description": "Disable automation"},
+                    {"command": "sleep_on", "description": "Enable sleep prevention"},
+                    {"command": "sleep_off", "description": "Disable sleep prevention"},
+                    {"command": "calibrate_5h", "description": "Calibrate 5-hour window"},
+                    {"command": "calibrate_weekly", "description": "Calibrate weekly window"},
+                    {"command": "users", "description": "List authorized users"},
                     {
                         "command": "setmodel",
-                        "description": "Model değiştir (auto/haiku/sonnet/opus)",
+                        "description": "Change model (auto/haiku/sonnet/opus)",
                     },
-                    {"command": "help", "description": "Komut listesi"},
+                    {"command": "help", "description": "List all commands"},
                 ]
             )
             self.api.set_my_description(
-                "Claude Code abonelik isteklerinizi 5 saatlik kullanım pencerelerinde "
-                "otomatik olarak yöneten macOS otomasyon botu."
+                "A macOS automation bot that schedules Claude Code subscription requests "
+                "around 5-hour usage windows."
             )
-            self.api.set_my_short_description("Claude Code pencere zamanlayıcı ve otomasyon botu")
+            self.api.set_my_short_description("Claude Code window scheduler and automation bot")
         except Exception as exc:
             log_event(
                 self.paths,
@@ -763,22 +743,22 @@ class TelegramBot:
         """Build a rich /status response with sections and countdown."""
         from .windows import format_countdown
 
-        enabled = "✅ Açık" if self.config["enabled"] else "❌ Kapalı"
-        bg = "✅ Açık" if self.config["background_enabled"] else "❌ Kapalı"
+        enabled = "✅ On" if self.config["enabled"] else "❌ Off"
+        bg = "✅ On" if self.config["background_enabled"] else "❌ Off"
         tz = self.config["timezone"]
         model = self.config.get("model", "auto")
         health = health_report(self.paths)
-        health_str = "✅ Sağlıklı" if health.get("ok", False) else "⚠️ Sorun var"
+        health_str = "✅ Healthy" if health.get("ok", False) else "⚠️ Issues found"
         now_utc = datetime.now(timezone.utc)
 
         # Build windows section
         next_windows = next_runs(self.paths, self.config)
         window_lines: list[str] = []
         for wtype, dt in next_windows.items():
-            label = "5 saatlik" if wtype == "five_hour" else "Haftalık"
+            label = "5-hour" if wtype == "five_hour" else "Weekly"
             countdown = format_countdown(dt, now_utc)
             window_lines.append(f"  • {label}: {_fmt_dt(dt, tz)} ({countdown})")
-        windows_str = "\n".join(window_lines) if window_lines else "  Pencere tanımlı değil"
+        windows_str = "\n".join(window_lines) if window_lines else "  No windows configured"
 
         # Build last run section
         last = state.get("last_run")
@@ -788,19 +768,19 @@ class TelegramBot:
             time_str = _fmt_dt(last.get("trigger_time"), tz)
             last_model = last.get("selected_model", "?")
             last_section = (
-                f"\n\n🕐 *Son Çalışma*\n"
+                f"\n\n🕐 *Last Run*\n"
                 f"  {icon} {_md_escape(time_str)}\n"
                 f"  Model: {_md_escape(str(last_model))}"
             )
 
         return (
-            f"📊 *Sistem Durumu*\n\n"
-            f"Otomasyon: {enabled}\n"
-            f"Uyku önleme: {bg}\n"
+            f"📊 *System Status*\n\n"
+            f"Automation: {enabled}\n"
+            f"Sleep prevention: {bg}\n"
             f"Model: *{_md_escape(str(model))}*\n"
-            f"Zaman dilimi: {_md_escape(tz)}\n"
-            f"Sağlık: {health_str}\n\n"
-            f"📅 *Sonraki Çalışmalar*\n{windows_str}"
+            f"Timezone: {_md_escape(tz)}\n"
+            f"Health: {health_str}\n\n"
+            f"📅 *Upcoming Runs*\n{windows_str}"
             f"{last_section}"
         )
 
@@ -832,20 +812,20 @@ class TelegramBot:
 
 def _usage_error_message(error: AppError) -> str:
     messages = {
-        ErrorCode.ALREADY_RUNNING: "Başka bir Claude işlemi çalışıyor. Biraz sonra tekrar deneyin.",
+        ErrorCode.ALREADY_RUNNING: "Another Claude process is running. Try again shortly.",
         ErrorCode.CLAUDE_NOT_AUTHENTICATED: (
-            "Claude abonelik oturumu açık değil. Mac'te bir kez claude auth login çalıştırın."
+            "Claude subscription session is not active. Run claude auth login on your Mac."
         ),
-        ErrorCode.TIMEOUT: "Claude kullanım sorgusu zaman aşımına uğradı. Tekrar deneyin.",
+        ErrorCode.TIMEOUT: "Claude usage query timed out. Try again.",
         ErrorCode.CLAUDE_USAGE_UNAVAILABLE: (
-            "Claude kullanım bilgisi alınamadı. Claude Code sürümünü ve oturumu kontrol edin."
+            "Could not retrieve Claude usage info. Check Claude Code version and session."
         ),
         ErrorCode.API_KEY_DETECTED: (
-            "API/provider ayarı algılandı; abonelik kullanım sorgusu güvenlik için durduruldu."
+            "API/provider credential detected; usage query stopped for safety."
         ),
-        ErrorCode.CLAUDE_NOT_FOUND: "Claude Code bulunamadı.",
+        ErrorCode.CLAUDE_NOT_FOUND: "Claude Code not found.",
     }
-    return messages.get(error.code, "Claude kullanım bilgisi alınamadı. Tekrar deneyin.")
+    return messages.get(error.code, "Could not retrieve Claude usage info. Try again.")
 
 
 def _is_valid_time(value: str) -> bool:

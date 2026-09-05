@@ -6,19 +6,19 @@ Use after reviewing the release and screenshot checklist. Do not announce a bina
 
 Ranked options (all comfortably below GitHub's practical 350-character description limit):
 
-1. Schedule Claude Code's 5-hour usage window before work. macOS starter with reset tracking, weekly quota monitoring, adaptive work-hours planning and Telegram control.
-2. A Claude Code 5-hour window starter and scheduler for macOS. Send an early request, track usage resets and weekly quota, and adjust scheduling around your workday.
-3. Plan Claude Code usage around your workday: a macOS menu bar scheduler with early warmup requests, 5-hour reset tracking, weekly usage and optional Telegram control.
+1. macOS app that pre-starts and schedules Claude Code's 5-hour usage window around your working hours, with 5h/weekly usage tracking and reset countdowns.
+2. Schedule Claude Code's 5-hour usage window before work. macOS starter with reset tracking, weekly quota monitoring, adaptive work-hours planning and Telegram control.
+3. A Claude Code 5-hour window starter and scheduler for macOS. Send an early request, track usage resets and weekly quota, and adjust scheduling around your workday.
 
-Option 1 is recommended: it leads with the task and timing benefit. Option 2 foregrounds the exact product category. Option 3 is natural but delays the five-hour concept.
+Option 1 is recommended: it leads with what the app is and does.
 
 ## GitHub Topics
 
 Priority order (GitHub may display them in another order):
 
-`claude-code`, `claude-code-usage`, `5-hour-window`, `scheduler`, `usage-limit`, `usage-tracking`, `warmup`, `macos`, `menu-bar`, `claude-code-quota`, `quota`, `automation`, `claude`, `anthropic`, `telegram-bot`
+`claude-code`, `claude-code-scheduler`, `5-hour-window`, `usage-window`, `macos-app`, `macos-menubar`, `claude-warmup`, `scheduler`, `telegram-bot`, `usage-tracker`, `swiftui`, `python`, `launchd`, `anthropic`, `claude-code-tools`
 
-These 15 topics are accurate and within GitHub's limit of 20. `5-hour-window`, `claude-code-quota`, and `claude-usage` are syntactically valid; the first two provide useful specificity, but their search popularity is unverified. `claude-usage` is optional and overlaps `claude-code-usage`. Avoid `rate-limit` here because it can attract API throttling queries. Topics categorize the project; they do not guarantee ranking.
+These 15 topics are accurate and within GitHub's limit of 20. `claude-code-scheduler`, `5-hour-window`, and `claude-warmup` target the primary search intents. Avoid `rate-limit` because it attracts API throttling queries. Topics categorize the project; they do not guarantee ranking.
 
 ## Repository name
 
@@ -44,9 +44,9 @@ It does not increase quota, bypass limits, or reset anything server-side. Reques
 
 A cron command is enough for a fixed daily request; I wanted observed-reset replanning, missed-action handling after sleep, quota visibility, and a menu bar UI together. The Mac must be awake and online. The backend uses Python's standard library, but Python and an authenticated Claude Code installation are still required.
 
-Current setup is a source install on macOS; some planner/bot text is Turkish. Downloadable packaging is still being prepared. Feedback on real reset observations and sleep/wake behavior would be helpful.
+Current setup is a source install on macOS. Downloadable packaging is still being prepared. Feedback on real reset observations and sleep/wake behavior would be helpful.
 
-GitHub: [GITHUB_URL — https://github.com/aetsr/claude-window-starter]
+GitHub: https://github.com/aetsr/claude-code-window-starter
 
 ## Hacker News title
 
@@ -56,7 +56,7 @@ GitHub: [GITHUB_URL — https://github.com/aetsr/claude-window-starter]
 
 ## X / Twitter post
 
-I built a macOS scheduler for Claude Code's 5-hour window: early requests around work hours, reset tracking, weekly usage and optional Telegram control. Uses normal quota; no limit bypass. Source install today. https://github.com/aetsr/claude-window-starter
+I built a macOS scheduler for Claude Code's 5-hour window: early requests around work hours, reset tracking, weekly usage and optional Telegram control. Uses normal quota; no limit bypass. Source install today. https://github.com/aetsr/claude-code-window-starter
 
 ## Before posting
 

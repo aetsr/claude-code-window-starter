@@ -12,7 +12,7 @@ Save reviewed captures under `docs/images/` using stable names. Capture at nativ
 | `telegram.png` | about 900 × 1200 | Genuine `/usage` and `/schedule` replies without identifying chat information | Telegram usage and schedule replies from Claude Code Window Starter |
 | `automation.gif` (optional) | 800–1000 px wide, 8–12 seconds, ideally under 5 MB | Save hours, inspect plan, enable automation; keep text readable | Enabling Claude Code work-hours scheduling |
 
-The current app mixes English and Turkish. Capture it honestly. If all requested usage fields cannot fit in the menu window, use two captures rather than assembling a fake combined UI.
+The app interface is English-only. Capture it honestly. If all requested usage fields cannot fit in the menu window, use two captures rather than assembling a fake combined UI.
 
 After reviewing a real capture, replace the README comment with:
 
