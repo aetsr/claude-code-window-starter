@@ -5,10 +5,22 @@ All notable changes to Claude Window Starter are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] — 2026-08-26
+## [Unreleased]
+
+### Discoverability and release preparation
+- Position the README around Claude Code five-hour window scheduling and legitimate early requests.
+- Document actual dependencies, cache behavior, installation/rollback limitations, and non-bypass/affiliation disclaimers.
+- Add launch copy, screenshot guidance, discoverability audit, release notes template and a draft artifact workflow.
+- Correct Swift toolchain instructions and remove stale test/version badges.
+- Repair existing Python lint/format failures without changing scheduling or credential behavior.
+- Correct CLI/Telegram subscription terminology and test the installed wheel without a source-tree PYTHONPATH override.
+
+The changes below were previously labeled 2.2.0 (2026-08-26), but package,
+backend and app versions remain 2.1.0 and no GitHub Release was found during
+the 2026-09-05 audit. They remain unreleased pending version reconciliation.
 
 ### Added
-- **OAuth Usage API** — queries `api.anthropic.com/api/oauth/usage` directly for instant, reliable quota data (no PTY needed)
+- **OAuth Usage API** — queries `api.anthropic.com/api/oauth/usage`, with CLI PTY fallback when unavailable
 - OAuth token auto-discovery from macOS Keychain (`Claude Code-credentials`)
 - Usage result caching (300 s) to avoid redundant API calls
 - Dual timezone display — primary Europe/Berlin with secondary Europe/Istanbul (e.g. `21:10 DE / 22:10 TR`)
@@ -20,11 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README rewritten with architecture diagram, feature table, and project structure
 
 ### Fixed
-- "Şimdi Senkronize Et" (Sync Now) button no longer times out — OAuth API responds in <1 s
+- "Şimdi Senkronize Et" (Sync Now) can use the OAuth path before PTY fallback; latency depends on cache/network/service availability
 - PTY startup fallback timer increased from 3 s to 6 s for trust dialog edge cases
 - Telegram bot messages now show both DE and TR times
 
-## [2.1.0] — 2026-08-26
+## 2.1.0 — 2026-08-26
 
 ### Added
 - Adaptive weekday busy-hours planner with default `08:00–17:00` maximum-quota strategy
@@ -48,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Obsolete Linux systemd verification from the macOS-only CI workflow
 
-## [2.0.0] — 2026-07-26
+## 2.0.0 — 2026-07-26
 
 ### Added
 - Window-based scheduling architecture (five_hour + weekly windows) with `windows.py`
@@ -94,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dist/` intermediate build directory
 - Pre-2.0 single-job launchd agent
 
-## [1.0.0] — 2026-07-23
+## 1.0.0 — 2026-07-23
 
 ### Added
 - Initial release: basic Claude Code subscription request scheduler
@@ -102,7 +114,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Telegram bot with basic command support
 - Atomic release switching
 
-[2.2.0]: https://github.com/aetsr/claude-window-starter/compare/v2.1.0...v2.2.0
-[2.1.0]: https://github.com/aetsr/claude-window-starter/releases/tag/v2.1.0
-[2.0.0]: https://github.com/aetsr/claude-window-starter/releases/tag/v2.0.0
-[1.0.0]: https://github.com/aetsr/claude-window-starter/releases/tag/v1.0.0
+[Unreleased]: https://github.com/aetsr/claude-window-starter/commits/main

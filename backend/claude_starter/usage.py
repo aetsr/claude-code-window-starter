@@ -91,7 +91,15 @@ def _read_oauth_token() -> str | None:
     """Read the Claude Code OAuth access token from the macOS Keychain."""
     try:
         result = subprocess.run(
-            ["security", "find-generic-password", "-a", os.environ.get("USER", ""), "-s", _KEYCHAIN_SERVICE, "-w"],
+            [
+                "security",
+                "find-generic-password",
+                "-a",
+                os.environ.get("USER", ""),
+                "-s",
+                _KEYCHAIN_SERVICE,
+                "-w",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
@@ -139,12 +147,9 @@ def _query_usage_api(token: str, timeout: int = 10) -> dict[str, Any] | None:
         return None
 
 
-def _api_response_to_result(
-    data: dict[str, Any], config: dict[str, Any]
-) -> dict[str, Any]:
+def _api_response_to_result(data: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     """Convert the OAuth usage API response to the standard result format."""
     captured_at = datetime.now(timezone.utc)
-    tz_name = str(config.get("timezone", "UTC"))
 
     limits: dict[str, dict[str, Any] | None] = {"five_hour": None, "weekly": None}
 
@@ -206,7 +211,9 @@ def _api_response_to_result(
             lines.append(f"{label_map[key]}: %{pct:.0f} kullanıldı{reset_str}")
 
     usage_text = "\n".join(lines) if lines else "Kullanım bilgisi mevcut değil."
-    formatted = "📊 Claude Kullanım Bilgisi\n" + "\n".join(f"• {line}" for line in lines) if lines else ""
+    formatted = (
+        "📊 Claude Kullanım Bilgisi\n" + "\n".join(f"• {line}" for line in lines) if lines else ""
+    )
 
     result = {
         "captured_at": captured_at.isoformat(),

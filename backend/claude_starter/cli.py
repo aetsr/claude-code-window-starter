@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser(
         "usage",
-        help="Read /usage through an invisible app-managed pseudo-terminal",
+        help="Read Claude Code subscription usage (cache, OAuth, then CLI /usage fallback)",
     )
 
     config_parser = sub.add_parser("config")

@@ -77,7 +77,7 @@ struct ContentView: View {
                 LogoMark(size: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Claude Window Starter").font(.headline)
-                    Text("Secure automation on Mac").font(.caption).foregroundStyle(.secondary)
+                    Text("Claude Code 5-hour window scheduler").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 // Sleep mode control
@@ -311,7 +311,7 @@ struct ContentView: View {
                             Text("Telegram token not found in Keychain. Enter it below to start the bot.")
                                 .font(.caption).foregroundStyle(.red)
                         } else {
-                            Text("When the lid is closed, the bot continues running if sleep prevention is on.")
+                            Text("Sleep prevention requests that macOS stay awake. Lid-close or system sleep can still pause the bot.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }

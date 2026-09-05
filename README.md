@@ -1,273 +1,196 @@
-<div align="center">
+# Claude Code 5-Hour Window Starter
 
-# Claude Window Starter
+Schedule a small Claude Code request before work to help align your 5-hour usage window with your workday.
 
-**macOS menu bar app that maximizes your Claude Code subscription quota — with a Telegram bot, live usage tracking, and zero runtime dependencies.**
+This macOS menu bar app is a Claude Code usage window scheduler and starter: it plans early requests, tracks usage reset information, and adapts later requests to an observed active window. See your schedule alongside 5h and weekly quota tracking, with optional Telegram control. If waiting for a usage limit to reset interrupts your day, starting legitimate usage earlier may make the next reset more useful.
+
+It does **not** increase quota, bypass Anthropic usage limits, reset server-side limits, or exploit authentication. Scheduled requests consume normal subscription usage. An already active window cannot be moved; Anthropic determines whether a request starts a new window and when it resets.
 
 [![CI](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-244%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
-[![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-blue?logo=python&logoColor=white)](https://www.python.org)
-[![macOS](https://img.shields.io/badge/macOS-13%2B-black?logo=apple&logoColor=white)](https://www.apple.com/macos/)
-[![Swift](https://img.shields.io/badge/swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://github.com/astral-sh/ruff)
-[![Last commit](https://img.shields.io/github/last-commit/aetsr/claude-window-starter)](https://github.com/aetsr/claude-window-starter/commits/main)
-[![Release](https://img.shields.io/badge/release-v2.2.0-blue)](CHANGELOG.md)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-</div>
+<!-- Real screenshot TODO: capture the Automation tab with planner, observed
+reset, source/freshness and next action. See docs/SCREENSHOTS.md. Insert a real,
+reviewed capture here using a stable relative path. -->
 
----
+Illustrative default plan, not a screenshot or a promise of server reset times:
 
-## Why?
-
-Claude Code Pro/Max subscriptions have a **5-hour rolling window** and a **weekly cap**. If you're not tracking when your quota resets, you waste time waiting — or worse, hit the limit mid-task.
-
-This app sits in your menu bar, reads your real quota from Anthropic's API in under 1 second, and schedules your coding sessions around the resets automatically.
-
----
-
-## Overview
-
+```text
+05:00             08:00        10:03         15:06        17:00
+early request     work starts  next request next request work ends
+                  Observed resets can change this plan.
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Claude Window Starter                            DE/TR  │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  5h Session  ████████░░░░░░░░░░░░  24%                  │
-│  Weekly      ████████████░░░░░░░░  60%                  │
-│                                                          │
-│  Reset: 26.08 21:10 DE / 22:10 TR                       │
-│                                                          │
-│  ● Telegram Bot: Running                                 │
-│  ● Background:   Active                                  │
-│  ● Network:      Online                                  │
-│                                                          │
-│  [Sync Now]                       [Automation: ON]       │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Live Usage Tracking** | Reads quota directly from Anthropic's OAuth API — instant, reliable, no PTY hacks |
-| **Adaptive Scheduling** | Plans window-opening anchors around your work hours and real server resets |
-| **Telegram Bot** | Full control from your phone: sync usage, run prompts, change settings |
-| **Dual Timezone** | Configurable primary timezone (Europe/Berlin) with secondary display (Europe/Istanbul) |
-| **Background Mode** | Keeps Mac awake on AC power, monitors network, replans after wake |
-| **Atomic Releases** | Every install is immutable; one-command rollback to any healthy release |
-| **Zero Runtime Deps** | Python stdlib only — no pip install at runtime |
-| **Keychain Security** | Telegram token stored in macOS Keychain, survives app re-signing |
-
----
-
-## How It Works
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│   SwiftUI App   │────▶│  Python Backend   │────▶│  Claude Code CLI │
-│  (menu bar)     │     │  (stdlib only)    │     │  (subscription)  │
-└─────────────────┘     └──────────────────┘     └──────────────────┘
-        │                       │                         │
-        │                       ▼                         │
-        │               ┌──────────────────┐              │
-        │               │  OAuth Usage API  │◀─────────────┘
-        │               │  (direct query)   │
-        │               └──────────────────┘
-        │                       │
-        ▼                       ▼
-┌─────────────────┐     ┌──────────────────┐
-│  Telegram Bot   │     │   launchd Jobs   │
-│  (long-poll)    │     │  (background +   │
-│                 │     │   supervisor)    │
-└─────────────────┘     └──────────────────┘
-```
-
-1. **Usage Sync** — Queries Anthropic's OAuth API directly using the Claude Code Keychain credential. Returns 5-hour and weekly quota percentages with reset times in under 1 second.
-
-2. **Adaptive Planner** — Given your work hours (e.g. 08:00–17:00 Mon–Fri), computes optimal anchor points for each 5-hour window. Server-observed resets override the plan when they differ.
-
-3. **Background Service** — A launchd-managed Swift agent prevents idle sleep, watches for network changes, and calls the backend scheduler every 5 seconds. Missed windows during sleep/offline are flagged for recalibration.
-
-4. **Telegram Supervisor** — A separate launchd job runs the Telegram long-polling bot with `flock()`-based single-instance enforcement. The supervisor detects token availability, manages the worker process lifecycle, and writes real-time status to a shared JSON file.
-
----
-
-## Requirements
-
-- macOS 13 Ventura or later (Apple Silicon & Intel)
-- Python 3.10 – 3.13 (system or Homebrew)
-- Xcode 15+ (to build the Swift app)
-- A Claude Code subscription (Pro or Max)
-
----
 
 ## Installation
 
+### Recommended installation today: from source
+
+There is currently no published, ready-to-install macOS download. The installer builds the app and installs its backend and launchd helpers in one command. A standalone `.app` build is not a complete installation. See [release readiness](docs/RELEASING.md).
+
+Requirements:
+
+- macOS 13+; builds target the host architecture (Apple Silicon or Intel).
+- Python 3.10+ with `venv`; CI covers 3.10–3.13. Python remains a runtime requirement. There are no third-party Python runtime packages.
+- Swift 6.0+ and a macOS SDK for building, such as Xcode 16+ or compatible Command Line Tools. Your chosen toolchain may require a newer build host than macOS 13. Check `swift --version`.
+- [Claude Code](https://code.claude.com/docs/en/setup) installed and signed in with subscription access. No Anthropic API key is required. Network access is needed for Claude and optional Telegram.
+- Standard macOS utilities including `curl`, `security`, `codesign`, and `launchctl`.
+
 ```bash
-# 1. Build backend + Swift app
-scripts/build-local.sh
-
-# 2. Install to /Applications + register LaunchAgents
-scripts/install-macos.sh
-
-# 3. Open the app
-open "/Applications/Claude Window Starter.app"
+git clone https://github.com/aetsr/claude-window-starter.git
+cd claude-window-starter
+claude auth login
+./scripts/install-macos.sh
 ```
 
-The installer places the backend under `~/Library/Application Support/ClaudeWindowStarter`, installs the app to `/Applications`, and registers launchd helpers. All config, state, and logs stay outside Git. Telegram tokens are stored exclusively in Keychain.
+Run from a clean checkout: the installer refuses uncommitted source changes. It builds and opens `/Applications/Claude Window Starter.app`, creates a virtual environment under `~/Library/Application Support/ClaudeWindowStarter`, and registers user LaunchAgents. Writing to `/Applications` may require permission. Swift/Xcode is needed for source installation and upgrades, not normal operation afterward.
 
-**Uninstall:**
+### Build from source without installing
+
 ```bash
-scripts/uninstall-macos.sh          # keeps config/state/logs
-scripts/uninstall-macos.sh --purge  # removes everything
+./scripts/build-local.sh
 ```
 
----
+This runs Python/Swift tests, builds and installs a wheel in a temporary environment, checks plists, and creates `dist/Claude Window Starter.app`. It needs pip/build dependency access. To build only the Swift bundle, use `./scripts/build-macos-app.sh dist`. These artifact builds do not install the backend or services.
 
-## Telegram Bot
+Without an output argument, `build-macos-app.sh` instead replaces the installed app, syncs Python files into the active backend, and launches it. Use that mode only intentionally for development.
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
-2. Open the app &rarr; **Telegram** tab &rarr; paste token into the secure field
-3. Click **Pair** and follow the instructions
-4. The bot starts automatically via launchd
+## Quick start
 
-### Commands
+1. Open the app and choose your IANA timezone, such as `Europe/Berlin`. Verify it explicitly; the example config uses `Europe/Istanbul`.
+2. In **Automation**, set and save your adaptive work hours. Defaults are weekdays, 08:00–17:00. Some labels currently use Turkish: `Yoğun başlangıç` / `Yoğun bitiş` are start/end; `Kaydet` means Save.
+3. Select `Şimdi senkronize et` (Sync now) to inspect usage and observed reset. Reads may reuse a cache for up to five minutes.
+4. Review today's planned requests, then enable **Automation**. Optional **Sleep prevention** requests that macOS keep the machine running; actual sleep still prevents execution.
+5. Keep the Mac online at the planned times. The launchd helper runs independently of the menu window.
 
-| Category | Commands |
-|----------|----------|
-| **Status** | `/status` `/usage` `/sync_usage` `/schedule` `/health` `/diagnose` `/logs` |
-| **Automation** | `/run` `/dryrun` `/automation_on` `/automation_off` |
-| **Sleep** | `/sleep_on` `/sleep_off` |
-| **Planning** | `/workhours HH:MM HH:MM` `/calibrate_5h HH:MM` `/calibrate_weekly YYYY-MM-DD HH:MM` |
-| **Settings** | `/setmodel` `/setprompt` `/settimezone` |
-| **Users** | `/users` `/adduser <id>` `/removeuser <id>` |
+New installs disable automation, sleep prevention, and Telegram. Upgrades preserve existing preferences and can resume previously enabled automation.
 
-**Usage sync**: `/usage` and `/sync_usage` query the Anthropic OAuth API using the Claude Code Keychain credential to fetch real-time 5-hour and weekly quota percentages. Falls back to an invisible PTY session if the OAuth token is unavailable.
+## Why this exists
 
-All destructive actions (`/run`, `/setprompt`) require an inline confirmation tied to the originating user and chat.
+Starting your first Claude Code request when work begins can put a useful reset later in the day. This app schedules a small early request and shows what the server reports so you can plan around the window. Timing helps organize access; it does not create extra quota.
 
----
+## Features
 
-## CLI
+- Work-hours-aware scheduling, daily request preview, and manual calibration fallback.
+- Five-hour and weekly usage percentages when available, reset information, and local countdowns.
+- Replanning around an observed active window and suppression when weekly exhaustion is observed.
+- macOS menu bar interface, background helper, and network monitoring.
+- Missed-action expiration after sleep/offline periods without replaying a backlog.
+- Optional Telegram status, usage sync, settings, and confirmed manual requests.
+- Local configuration/logs and Keychain storage for the Telegram token.
+
+## How the 5-hour window scheduling works
+
+An **anchor** is a scheduled request intended to begin normal subscription usage, not a server-side reset command.
+
+1. The planner starts three hours before your work period, never before local midnight. For 08:00–17:00, the initial plan is 05:00, 10:03, and 15:06 (default interval: 303 minutes).
+2. At a due action it queries usage: cache up to 300 seconds old → Claude Code OAuth usage endpoint using the existing Keychain credential → interactive CLI `/usage` through an app-owned invisible PTY if needed.
+3. If an active five-hour window is observed, it skips the redundant request and replans from the reported reset plus the default 180-second grace period. Observed weekly exhaustion also suppresses the request.
+4. Otherwise it sends a fixed Haiku request: `Reply with exactly OK. Do not use tools.` It uses the logged-in Claude Code CLI with tools disabled and no model fallback. This consumes quota.
+5. Locked decisions and recorded results prevent duplicate actions. Requests more than five minutes late under default settings expire; later eligible actions remain available.
+
+If usage measurement fails, scheduling can proceed with estimated confidence. A successful request is not independent proof of a new server window: check a subsequent observation. The OAuth endpoint and CLI output can change; instantaneous reads and exact reset alignment are not guaranteed.
+
+## Usage and Telegram control
+
+After installation, `./scripts/dry-run.sh` checks the request path without sending a real request. `./scripts/run-now.sh` sends your configured model/prompt; adaptive anchors always use fixed Haiku requests.
+
+Telegram is optional. Create a bot with [BotFather](https://t.me/BotFather), save its token in the **Telegram** tab, and complete the displayed pairing flow or configure numeric private user/chat allowlists. See [setup](docs/TELEGRAM.md). Many replies currently use Turkish.
+
+| Purpose | Commands |
+| --- | --- |
+| Inspect | `/status`, `/usage`, `/sync_usage`, `/schedule`, `/health`, `/diagnose`, `/logs` |
+| Run/control | `/run` (confirmation), `/dryrun`, `/automation_on`, `/automation_off` |
+| Work schedule | `/workhours 08:00 17:00` |
+| Sleep prevention | `/sleep_on`, `/sleep_off` |
+| Calibration | `/calibrate_5h HH:MM`, `/calibrate_weekly YYYY-MM-DD HH:MM` |
+| Settings | `/setmodel`, `/setprompt` (confirmation), `/settimezone` |
+| Access | `/users`, `/adduser <id>`, `/removeuser <id>` |
+
+Calibration changes local scheduling, not server limits. `/sync_usage` uses the same cache-aware query as `/usage`.
+
+## Why not just use a cron job?
+
+A cron job or simple Claude warmup script can send one request at a fixed time. This app adds a workday plan, observed-window replanning, quota visibility, duplicate-action protection, missed-action expiration, a menu interface, and optional remote control. It exposes measurement failures and estimated timing. It still depends on a running, connected Mac and valid Claude Code authentication.
+
+## FAQ
+
+### What is Claude Code's 5-hour usage window?
+
+A time-based subscription usage allowance, separate from weekly limits. Anthropic controls the rules, which can vary by plan; see [its usage explanation](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work). This app reads reported usage and schedules ordinary requests around it.
+
+### Can I start Claude Code's 5-hour window before I begin working?
+
+The app can schedule a legitimate request before work, which may start an eligible window. It cannot start a second window while one is active or guarantee your preferred reset time.
+
+### Is this a Claude Code warmup tool?
+
+Yes, in the sense of scheduling an early request to start usage. Warmup does not mean keeping a model loaded or making responses faster.
+
+### Does this reset or bypass Claude's usage limits?
+
+No. It tracks the Claude Code usage reset and schedules requests. It cannot increase quota, bypass limits, manipulate authentication, or reset the server timer.
+
+### Can it track Claude Code weekly usage?
+
+Yes, when supplied by the usage response. Percentages and reset information appear in usage output. Manual weekly calibration is separate and cannot replenish the weekly allowance.
+
+### Does it work when my Mac sleeps?
+
+Requests cannot run during actual sleep. Power assertions request sleep prevention; lid-close and system policies can still suspend execution. After wake/reconnect, stale actions expire instead of firing together. This is not a wake alarm or cloud scheduler.
+
+### Does it require the Anthropic API?
+
+No paid API key or API billing setup is required. Requests use your Claude Code subscription. Usage inspection contacts Anthropic's OAuth usage endpoint, with a CLI `/usage` fallback. “Claude API usage windows” would confuse subscription limits with API rate limits.
+
+## Upgrade and uninstall
+
+From a clean checkout, run `git pull --ff-only`, then `./scripts/install-macos.sh`. Back up local config/state first; automation preferences are preserved.
 
 ```bash
-python3 -m claude_starter --home <dir> --json <command> [args]
+./scripts/list-releases.sh
+./scripts/rollback.sh --yes  # review the list first; changes backend symlinks
+./scripts/uninstall-macos.sh  # preserves config/state/logs
 ```
 
-| Command | Description |
-|---------|-------------|
-| `status` | System status and window info |
-| `usage` | Read quota via OAuth API (PTY fallback) |
-| `run` | Execute Claude with the configured prompt |
-| `calibrate` | Set window anchor (`--window-type five_hour\|weekly --anchor ISO`) |
-| `config` | Read / patch config (`get`, `set`, `patch-stdin`) |
-| `schedule` | Show the adaptive plan; `--tick` is the background decision entry point |
-| `health` | Health report |
-| `telegram-bot` | Start the Telegram polling bot |
-| `service` | Manage launchd services (`start`, `stop`, `restart`) |
-| `releases` | List local releases |
-| `rollback` | Roll back to a previous healthy release |
+Rollback is not a complete app/service downgrade. The shell installer switches backend symlinks before building the app and has no automatic health-gated rollback. See [local release limitations](docs/LOCAL_RELEASES.md). Use `./scripts/uninstall-macos.sh --purge` only to deliberately remove local app data too.
 
-All commands emit a versioned JSON envelope: `{"ok": true, "status": "...", ...}`.
+## Security & privacy
 
----
+Claude execution uses an allowlisted environment, no shell, no tools, timeouts, and subscription credential checks. Telegram uses private user/chat allowlists and confirmation nonces for execution/prompt changes, with outbound long polling and no inbound port. Its Keychain token has broad local access to tolerate ad-hoc re-signing.
 
-## Atomic Releases & Rollback
+Usage inspection reads the existing Claude Code OAuth credential. The current `curl` call passes its bearer header as a process argument: a known local credential-exposure concern before a broad binary launch. Usage results are cached locally. No analytics service is included. See [security details](SECURITY.md).
 
-Each `install-macos.sh` run creates an immutable release directory with its own manifest and health result. The `current` symlink is only updated when the new release passes its health check.
+This is an independent open-source project and is not affiliated with or endorsed by Anthropic.
+
+## Development and tests
 
 ```bash
-scripts/list-releases.sh     # list available releases
-scripts/rollback.sh          # roll back to previous healthy release
-```
-
-Up to 5 releases are kept by default.
-
----
-
-## Background Mode
-
-When **Background Mode** is enabled:
-
-- An `IOPMAssertion` prevents idle system sleep (AC power)
-- Network transitions are monitored via `NWPathMonitor`
-- The helper calls only the locked, idempotent `schedule --tick` backend decision
-- Missed actions are expired; after wake/reconnect the remaining day is replanned
-- Weekly exhaustion and persistent observation/anchor failures are deduplicated notifications
-
-> Lid-close sleep on MacBooks is enforced by macOS and cannot be prevented without an external display connected.
-
----
-
-## Security
-
-- Telegram token stored in macOS Keychain with permissive ACL (survives ad-hoc re-signing)
-- Claude runs in a restricted environment (no shell, controlled PATH, prohibited credentials stripped)
-- OAuth token read from Keychain is used only for the usage API — never written to disk
-- All log output is sanitized before writing (API keys, tokens redacted)
-- CI runs `bandit`, `ruff`, `mypy`, and a custom `security_scan.py` on every push
-- Config, state, and runtime files are gitignored
-- File locks (`flock()`) prevent duplicate bot/supervisor processes
-
-See [SECURITY.md](SECURITY.md) for the full security model.
-
----
-
-## Development
-
-```bash
-# Run tests (Python 3.10+, 244 tests)
-python3 -m pytest tests/ -v
-
-# Lint + type-check
-ruff check backend/
-mypy backend/
-
-# Security scan
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements-dev.lock
+PYTHONPATH=backend python3 -m unittest discover -s tests -p 'test_*.py'
+swift test --package-path macos-app
+ruff format --check backend tests scripts/security_scan.py
+ruff check backend tests scripts/security_scan.py
+mypy backend/claude_starter
+bandit -q -lll -r backend
 python3 scripts/security_scan.py
-
-# Dry run (no real Claude request)
-scripts/dry-run.sh
 ```
 
----
+CI is the source of test status; no fixed test-count badge is maintained. For source-tree CLI inspection use `PYTHONPATH=backend python3 -m claude_starter --help`. Installation does not add a global CLI to PATH; scripts invoke the installed virtual environment directly.
 
-## Project Structure
+## Architecture and documentation
 
-```
-claude-window-starter/
-├── backend/claude_starter/    # Python backend (stdlib only)
-│   ├── cli.py                 # CLI entry point
-│   ├── claude.py              # Claude Code discovery & invocation
-│   ├── usage.py               # OAuth API + PTY usage tracking
-│   ├── scheduler.py           # Adaptive window planner
-│   ├── telegram_bot.py        # Telegram long-polling bot
-│   ├── config.py              # Config management (v1→v4 migration)
-│   ├── state.py               # Atomic state persistence
-│   ├── health.py              # Health checks & diagnostics
-│   └── releases.py            # Atomic release management
-├── macos-app/                 # Swift/SwiftUI menu bar app
-│   ├── Sources/ClaudeWindowStarter/
-│   └── Sources/ClaudeWindowStarterAgent/
-├── scripts/                   # Build, install, uninstall scripts
-├── tests/                     # 244 unit tests
-└── docs/                      # Additional documentation
-```
+SwiftUI calls the local Python JSON CLI. A Swift launchd helper drives `schedule --tick` and monitors connectivity; another supervises Telegram. Python owns planning, usage queries, configuration, locks, and state. Installed paths and identifiers retain **Claude Window Starter** for compatibility.
 
----
+- [macOS details](docs/MACOS.md), [Telegram](docs/TELEGRAM.md), [troubleshooting](docs/TROUBLESHOOTING.md)
+- [Local releases](docs/LOCAL_RELEASES.md), [release preparation](docs/RELEASING.md)
+- [Discoverability audit](docs/DISCOVERABILITY.md), [launch copy](docs/LAUNCH.md)
 
-## Documentation
+## Contributing
 
-- [macOS Setup](docs/MACOS.md)
-- [Telegram Bot](docs/TELEGRAM.md)
-- [Local Releases](docs/LOCAL_RELEASES.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Contributing](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md). Reproducible usage parsing, reset, and sleep/wake reports are useful; remove credentials and personal identifiers.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE)
+[Apache License 2.0](LICENSE).

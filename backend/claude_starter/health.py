@@ -49,9 +49,7 @@ def health_report(paths: AppPaths, *, include_services: bool = True) -> dict[str
     tg_status = _telegram_supervisor_status(paths) if telegram_enabled else {}
     tg_ok = True
     if telegram_enabled:
-        tg_ok = tg_status.get("supervisor_alive", False) and tg_status.get(
-            "token_available", False
-        )
+        tg_ok = tg_status.get("supervisor_alive", False) and tg_status.get("token_available", False)
     checks: dict[str, Any] = {
         "operating_system": {"ok": operating_system == "Darwin", "value": operating_system},
         "architecture": {"ok": architecture in SUPPORTED_ARCHES, "value": architecture},

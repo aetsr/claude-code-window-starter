@@ -11,7 +11,7 @@ python3 "$ROOT/scripts/security_scan.py"
 python3 -m pip wheel --no-deps --wheel-dir "$TEMP/wheels" "$ROOT"
 python3 -m venv "$TEMP/venv"
 "$TEMP/venv/bin/pip" install --no-index --find-links "$TEMP/wheels" claude-window-starter==2.1.0
-PYTHONPATH="$ROOT/backend" "$TEMP/venv/bin/python" -m claude_starter --home "$TEMP/home" --json version >/dev/null
+env -u PYTHONPATH "$TEMP/venv/bin/python" -m claude_starter --home "$TEMP/home" --json version >/dev/null
 swift test --package-path "$ROOT/macos-app"
 for plist in "$ROOT"/launchd/*.plist; do plutil -lint "$plist" >/dev/null; done
 "$ROOT/scripts/build-macos-app.sh" "$ROOT/dist"

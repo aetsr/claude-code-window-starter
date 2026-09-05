@@ -4,9 +4,9 @@
 - **CLAUDE_NOT_AUTHENTICATED**: Run `claude auth login` once interactively on the Mac. The background service never automates subscription login.
 - **CLAUDE_USAGE_UNAVAILABLE**: Update Claude Code and confirm that interactive `/usage` is supported. The app rejects welcome, trust, `API Usage Billing`, and incomplete screens as results.
 - **TIMEOUT** during `/usage`: Wait for any active Claude run to finish and retry. PTY children are terminated and reaped on every error path.
-- **NETWORK_UNAVAILABLE** or **pending_connectivity**: The helper will automatically make a single retry when connectivity is restored.
+- **NETWORK_UNAVAILABLE** or **pending_connectivity**: The helper re-evaluates scheduling after reconnect. Stale adaptive actions expire instead of replaying; manual windows may need recalibration.
 - **ALREADY_RAN_TODAY**: The daily duplicate protection has triggered; a manual run can still be performed.
-- **MODEL_UNAVAILABLE**: `auto` tests the Haiku alias before a successful call and falls back to the account default when necessary.
+- **MODEL_UNAVAILABLE**: Check model access in your Claude Code subscription. Adaptive anchors use fixed Haiku with no model fallback; manual requests use their configured model behavior.
 - **LAUNCHD_FAILED**: Reinstall the application; check the `plutil -lint` output of the plist files.
 - **NO_HEALTHY_PREVIOUS_RELEASE**: There is no healthy local release to roll back to.
 - If the process stops when the lid is closed, this is macOS forced-sleep behavior; pending work is re-evaluated after the device wakes.

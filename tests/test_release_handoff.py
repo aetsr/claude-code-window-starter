@@ -29,9 +29,7 @@ class ReleaseWorkerHandoffTests(unittest.TestCase):
         initial_handoff = "terminate_stale_telegram_worker\n"
         post_bootstrap_handoff = "terminate_stale_telegram_worker legacy"
         self.assertIn(bootout_loop, install)
-        self.assertLess(
-            install.index(bootout_loop), install.index(initial_handoff)
-        )
+        self.assertLess(install.index(bootout_loop), install.index(initial_handoff))
         self.assertGreater(
             install.index(post_bootstrap_handoff),
             install.index('launchctl bootstrap "$DOMAIN" "$AGENT_DIR/$label.plist"'),

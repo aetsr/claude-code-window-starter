@@ -282,7 +282,8 @@ class TelegramBot:
             return "♻️ Arka plan servisi yeniden başlatıldı.", None
         if command == "/run":
             return (
-                "🤖 Claude çalıştırılsın mı? Gerçek bir API isteği gönderilecek.",
+                "🤖 Claude Code çalıştırılsın mı? "
+                "Abonelik kotasını kullanan gerçek bir istek gönderilecek.",
                 self._confirmation(user_id, chat_id, "run"),
             )
         if command == "/automation_on":

@@ -1,0 +1,78 @@
+name: Draft release artifacts
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Verify tag and version consistency
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import plistlib
+          import re
+          import tomllib
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', tag):
+              raise SystemExit('Use a stable SemVer tag vMAJOR.MINOR.PATCH')
+          version = tag[1:]
+          package = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          app = plistlib.loads(pathlib.Path('macos-app/Resources/Info.plist').read_bytes())['CFBundleShortVersionString']
+          backend = re.search(r'__version__ = "([^"]+)"', pathlib.Path('backend/claude_starter/__init__.py').read_text()).group(1)
+          assert version == package == app == backend, 'Tag/package/app/backend versions differ'
+          assert f'claude-window-starter=={version}' in pathlib.Path('scripts/build-local.sh').read_text()
+          assert f'"application_version":"{version}"' in pathlib.Path('scripts/install-macos.sh').read_text()
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write(f'RELEASE_VERSION={version}\n')
+          PY
+      - name: Install development tools
+        run: python3 -m pip install -r requirements-dev.lock
+      - name: Quality checks
+        run: |
+          ruff format --check backend tests scripts/security_scan.py
+          ruff check backend tests scripts/security_scan.py
+          mypy backend/claude_starter
+          bandit -q -lll -r backend
+          for file in scripts/*.sh; do bash -n "$file"; done
+      - name: Test and build app preview
+        run: ./scripts/build-local.sh
+      - name: Package source, wheel and app preview
+        # Future trusted distribution stage belongs before final packaging:
+        # complete the backend/runtime installer, import Developer ID into a
+        # temporary Keychain, sign nested code with hardened runtime, notarize
+        # with notarytool, staple/validate, then archive and checksum again.
+        # Required credentials and cleanup sequence: docs/RELEASING.md.
+        # Today's artifacts remain explicitly ad-hoc development previews.
+        run: |
+          python3 -m build --wheel --no-isolation
+          mkdir release-assets
+          git archive --format=tar.gz --prefix="claude-code-window-starter-${RELEASE_VERSION}/" -o "release-assets/claude-code-window-starter-${RELEASE_VERSION}-source.tar.gz" HEAD
+          ditto -c -k --sequesterRsrc --keepParent "dist/Claude Window Starter.app" "release-assets/claude-code-window-starter-${RELEASE_VERSION}-macos-$(uname -m)-app-preview.zip"
+          cp dist/*.whl release-assets/
+          cd release-assets
+          shasum -a 256 ./*.tar.gz ./*.zip ./*.whl > SHA256SUMS
+      - name: Create draft prerelease for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --prerelease --title "Claude Code Window Starter $RELEASE_TAG — preview" --notes-file docs/RELEASE_NOTES_TEMPLATE.md
