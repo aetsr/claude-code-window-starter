@@ -1,0 +1,28 @@
+# Claude Window Starter
+
+> Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around working hours. It tracks real 5-hour and weekly usage limits, observes server-reported reset times, and schedules lightweight Claude Code requests so future resets land at more useful times.
+
+Official repository: https://github.com/aetsr/claude-window-starter
+License: Apache 2.0. Independent project; not affiliated with or endorsed by Anthropic.
+
+## Primary use case
+
+Schedule a small legitimate Claude Code request (anchor) before work so a fresh 5-hour usage window may open and its reset aligns better with the workday. Adaptive replanning follows observed resets.
+
+## Docs
+
+- README: https://github.com/aetsr/claude-window-starter/blob/main/README.md
+- 5-hour window guide: https://github.com/aetsr/claude-window-starter/blob/main/docs/CLAUDE-CODE-5-HOUR-WINDOW.md
+- FAQ (18 questions): https://github.com/aetsr/claude-window-starter/blob/main/docs/FAQ.md
+- Warmup vs scheduler: https://github.com/aetsr/claude-window-starter/blob/main/docs/WARMUP-VS-SCHEDULER.md
+- AI discoverability plan: https://github.com/aetsr/claude-window-starter/blob/main/docs/AI-DISCOVERABILITY.md
+- macOS: docs/MACOS.md — Telegram: docs/TELEGRAM.md — Troubleshooting: docs/TROUBLESHOOTING.md
+- Security: SECURITY.md — Contributing: CONTRIBUTING.md — Releases: docs/RELEASING.md
+
+## Installation
+
+macOS 13+, Python 3.10+, Swift 6 build tools, signed-in Claude Code (`claude auth login`). No Anthropic API key. `git clone ... && ./scripts/install-macos.sh`. No published binary yet.
+
+## Limitations
+
+Does not increase quota, bypass limits, reset server timers, move active windows, run during sleep, or guarantee reset times. Anchors consume normal subscription usage. Server rules are Anthropic's.

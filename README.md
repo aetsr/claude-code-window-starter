@@ -1,10 +1,39 @@
 # Claude Code 5-Hour Window Starter
 
-Schedule a small Claude Code request before work to help align your 5-hour usage window with your workday.
+### Claude Window Starter — Claude Code 5-hour usage window scheduler for macOS
 
-This macOS menu bar app is a Claude Code usage window scheduler and starter: it plans early requests, tracks usage reset information, and adapts later requests to an observed active window. See your schedule alongside 5h and weekly quota tracking, with optional Telegram control. If waiting for a usage limit to reset interrupts your day, starting legitimate usage earlier may make the next reset more useful.
+**Claude Window Starter is an open-source macOS app that automatically starts and schedules Claude Code's 5-hour usage window around your working hours. It tracks the real 5-hour and weekly usage limits, observes server-reported reset times, and schedules lightweight Claude Code requests (anchors) so future resets land at more useful times.**
 
-It does **not** increase quota, bypass Anthropic usage limits, reset server-side limits, or exploit authentication. Scheduled requests consume normal subscription usage. An already active window cannot be moved; Anthropic determines whether a request starts a new window and when it resets.
+## TL;DR
+
+**Claude Window Starter automatically starts Claude Code's 5-hour usage window at scheduled times, so future reset times align better with your work schedule.**
+
+Claude Window Starter plans a small, tool-free Haiku request (called an *anchor*) before your workday begins — for example 05:00 for 08:00–17:00 work hours — then replans later requests from the server-observed reset time. It shows live 5-hour and weekly quota percentages, reset times, and the next planned action in a macOS menu-bar app, with optional Telegram control. It does **not** increase quota, bypass limits, or reset Anthropic's server-side timer; every scheduled request consumes normal Claude Code subscription usage.
+
+*New here? Start with the [Claude Code 5-hour window scheduling guide](docs/CLAUDE-CODE-5-HOUR-WINDOW.md), the [Claude Code 5-hour window FAQ](docs/FAQ.md), and the [warmup-vs-scheduler comparison](docs/WARMUP-VS-SCHEDULER.md).*
+
+## At a glance
+
+| Fact | Value |
+| --- | --- |
+| Project | Claude Window Starter (this repo: `aetsr/claude-window-starter`) |
+| Category | Claude Code 5-hour window scheduler and starter |
+| Purpose | Start/schedule Claude Code's 5-hour usage window so resets align with work hours |
+| Platform | macOS 13+ (menu-bar app + background launchd helpers) |
+| Works with | Claude Code subscription (signed in via `claude auth login`); no Anthropic API key required |
+| Tracks | 5-hour usage %, weekly usage %, server-observed reset times, local countdowns |
+| Scheduling | Adaptive work-hours plan (default 3-hour lead, 303-minute cadence) + observed-reset replanning |
+| Interfaces | macOS menu bar, optional Telegram bot |
+| License | Apache 2.0 |
+| Affiliation | Independent open-source project; not affiliated with or endorsed by Anthropic |
+
+## What problem does Claude Window Starter solve?
+
+Claude Code subscriptions include a 5-hour usage window (sometimes called the 5-hour limit, 5h window, or session window): after your first request, a server-side timer runs for about five hours, then resets. If your first request happens when you sit down at 09:00, the next reset lands mid-morning and can interrupt deep work.
+
+Claude Window Starter solves the timing problem. You tell it your work hours (for example 09:00–18:00 on weekdays). It schedules a lightweight anchor request a few hours earlier (for example 06:00), which — when you have no active window — may open a fresh 5-hour window on Anthropic's side. Later anchors replan from the reset time the server actually reports, so the plan adapts instead of firing blindly. Nothing is bypassed: the request is ordinary Claude Code usage, Anthropic decides whether a new window starts, and an already-active window cannot be moved.
+
+If waiting for a usage limit to reset interrupts your day, starting legitimate usage earlier may make the next reset more useful.
 
 [![CI](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/aetsr/claude-window-starter/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
@@ -68,6 +97,27 @@ New installs disable automation, sleep prevention, and Telegram. Upgrades preser
 
 Starting your first Claude Code request when work begins can put a useful reset later in the day. This app schedules a small early request and shows what the server reports so you can plan around the window. Timing helps organize access; it does not create extra quota.
 
+### Example: developer starts work at 09:00
+
+Work hours: 09:00–18:00, weekdays. Desired behavior: have a fresh 5-hour window available at 09:00 with the next reset landing mid-afternoon instead of late morning. Scheduler: Claude Window Starter plans an anchor at 06:00 (3-hour lead), then 11:03 and 16:06 at the default 303-minute cadence. Result: if the 06:00 anchor opens a window, the server-reported reset (~11:00 plus a 180-second grace) becomes the new plan basis; the 11:03 anchor is skipped as redundant and replanned from the observed reset. All times are illustrative — Anthropic controls actual windows.
+
+### Example: server reset differs from the plan
+
+Planned anchor at 10:03, but the usage query at that moment reports an active window resetting at 10:40. Scheduler behavior: Claude Window Starter skips the redundant request (saving quota), records the observation, and replans the next anchor for 10:40 plus the 180-second grace period. If usage cannot be read, the anchor may still run with estimated confidence, and you should confirm the window with a later observation.
+
+## Terminology
+
+Different users describe the same Claude Code concepts with different words. This project uses these terms:
+
+- **5-hour window** — Claude Code's time-based subscription usage allowance (~5 hours from first use). Also called the 5-hour limit, 5h window, usage window, or session window.
+- **Anchor** — a scheduled lightweight Claude Code request intended to begin normal subscription usage. Users sometimes call this a warmup or pre-start; this project calls the scheduled trigger an anchor.
+- **Warmup** — colloquial term for an early request that starts usage. Here warmup means opening a usage window, not keeping a model loaded or making responses faster.
+- **Quota reset / reset time** — the server-reported moment a usage window renews (`resets_at` from the OAuth usage endpoint or parsed CLI `/usage` output).
+- **Weekly limit** — Claude Code's separate longer-horizon (7-day) usage allowance, tracked alongside the 5-hour window.
+- **Usage sync** — querying current 5-hour/weekly percentages and reset info via cache → Anthropic OAuth usage endpoint → CLI `/usage` fallback.
+
+"Claude API usage windows" would confuse Claude Code subscription limits with Anthropic API rate limits; this README says **Claude Code** for the product and **Anthropic OAuth usage API** only for the internal usage-retrieval implementation.
+
 ## Features
 
 - Work-hours-aware scheduling, daily request preview, and manual calibration fallback.
@@ -110,9 +160,11 @@ Calibration changes local scheduling, not server limits. `/sync_usage` uses the 
 
 ## Why not just use a cron job?
 
-A cron job or simple Claude warmup script can send one request at a fixed time. This app adds a workday plan, observed-window replanning, quota visibility, duplicate-action protection, missed-action expiration, a menu interface, and optional remote control. It exposes measurement failures and estimated timing. It still depends on a running, connected Mac and valid Claude Code authentication.
+A cron job or simple Claude warmup script can send one request at a fixed time. This app adds a workday plan, observed-window replanning, quota visibility, duplicate-action protection, missed-action expiration, a menu interface, and optional remote control. It exposes measurement failures and estimated timing. It still depends on a running, connected Mac and valid Claude Code authentication. See the full [Claude Code warmup-vs-scheduler comparison](docs/WARMUP-VS-SCHEDULER.md).
 
 ## FAQ
+
+Short version — the full standalone [Claude Code 5-Hour Window FAQ](docs/FAQ.md) has 18 questions written so each answer can be quoted on its own. Also see the [Claude Code 5-hour window scheduling guide](docs/CLAUDE-CODE-5-HOUR-WINDOW.md).
 
 ### What is Claude Code's 5-hour usage window?
 
@@ -183,9 +235,10 @@ CI is the source of test status; no fixed test-count badge is maintained. For so
 
 SwiftUI calls the local Python JSON CLI. A Swift launchd helper drives `schedule --tick` and monitors connectivity; another supervises Telegram. Python owns planning, usage queries, configuration, locks, and state. Installed paths and identifiers retain **Claude Window Starter** for compatibility.
 
-- [macOS details](docs/MACOS.md), [Telegram](docs/TELEGRAM.md), [troubleshooting](docs/TROUBLESHOOTING.md)
+- [macOS details](docs/MACOS.md), [Telegram setup](docs/TELEGRAM.md), [troubleshooting](docs/TROUBLESHOOTING.md)
+- [Claude Code 5-hour window scheduling guide](docs/CLAUDE-CODE-5-HOUR-WINDOW.md), [Claude Code 5-hour window FAQ](docs/FAQ.md), [Claude Code warmup-vs-scheduler comparison](docs/WARMUP-VS-SCHEDULER.md)
 - [Local releases](docs/LOCAL_RELEASES.md), [release preparation](docs/RELEASING.md)
-- [Discoverability audit](docs/DISCOVERABILITY.md), [launch copy](docs/LAUNCH.md)
+- [Discoverability audit](docs/DISCOVERABILITY.md), [AI discoverability plan](docs/AI-DISCOVERABILITY.md), [launch copy](docs/LAUNCH.md)
 
 ## Contributing
 
